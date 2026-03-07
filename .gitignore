@@ -1,0 +1,81 @@
+# ==========================================
+# JobSync - .gitignore
+# ==========================================
+
+# Environment variables (NEVER commit these)
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+venv/
+.venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Node / React Native / Expo
+node_modules/
+.expo/
+.expo-shared/
+dist/
+web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# iOS
+ios/Pods/
+ios/.xcode.env.local
+
+# Android
+android/app/debug/
+android/app/release/
+android/.gradle/
+android/local.properties
+*.keystore
+!debug.keystore
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# VS Code
+.vscode/settings.json
+.vscode/launch.json
+
+# JetBrains
+.idea/
+
+# Docker
+*.log
+
+# Database
+*.sqlite
+*.db
+
+# AWS / Secrets
+*.pem
+credentials
