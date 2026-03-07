@@ -21,11 +21,11 @@ celery_app.conf.update(
     beat_schedule={
         "send-daily-reminders-utc-0000": {
             "task": "app.tasks.reminder_task.send_daily_reminders",
-            "schedule": crontab(minute=0, hour=0, timezone="UTC"),
+            "schedule": crontab(minute=0, hour=0),
         },
         "send-daily-reminders-utc-1200": {
             "task": "app.tasks.reminder_task.send_daily_reminders",
-            "schedule": crontab(minute=0, hour=12, timezone="UTC"),
+            "schedule": crontab(minute=0, hour=12),
         },
     },
 )
