@@ -24,7 +24,10 @@ class Settings(BaseSettings):
     # ── Google OAuth2 ─────────────────────────────────────────
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
+    # Gmail連携OAuth用（メール読み取りスコープ）
     GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/emails/connect/gmail/callback"
+    # ログイン認証OAuth用（openid email profile スコープ）
+    AUTH_GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/google/callback"
 
     # ── JWT ───────────────────────────────────────────────────
     JWT_SECRET_KEY: str = "change-me-in-production"
