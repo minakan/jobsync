@@ -10,10 +10,12 @@ from sqlalchemy import (
     Index,
     String,
     Text,
+    text,
 )
 from sqlalchemy import (
     Enum as SAEnum,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -57,6 +59,12 @@ class Company(BaseModel):
     )
     priority: Mapped[int] = mapped_column(nullable=False, default=3)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status_history: Mapped[list[dict[str, str]]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default=text("'[]'::jsonb"),
+    )
 
     user: Mapped[User] = relationship(back_populates="companies")
     schedules: Mapped[list[Schedule]] = relationship(back_populates="company")

@@ -2,14 +2,16 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import sentry_sdk
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 
 from app import models as _models  # noqa: F401
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.database import Base, engine
+from app.core.errors import APIError
 from app.core.logger import logger
 from app.core.redis import redis_client
 
@@ -60,6 +62,14 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(api_router, prefix="/api/v1")
+
+
+@app.exception_handler(APIError)
+async def api_error_handler(_: Request, exc: APIError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": str(exc.detail), "code": exc.code},
+    )
 
 
 # ── Health check ──────────────────────────────────────────────────────────────
