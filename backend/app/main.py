@@ -1,15 +1,17 @@
-from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 import sentry_sdk
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
+from app import models as _models  # noqa: F401
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.database import Base, engine
 from app.core.logger import logger
+from app.core.redis import redis_client
 
 # ── Sentry（本番のみ）────────────────────────────────────────────────────────
 if settings.ENV == "production" and settings.SENTRY_DSN:
@@ -31,6 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Database ready")
     yield
     logger.info("JobSync API shutting down...")
+    await redis_client.aclose()
     await engine.dispose()
 
 
