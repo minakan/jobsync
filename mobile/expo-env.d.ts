@@ -1,7 +1,3 @@
-/// <reference types="expo-router/types" />
+/// <reference types="expo/types" />
 
-declare const process: {
-  env: {
-    EXPO_PUBLIC_API_URL?: string;
-  };
-};
+// NOTE: This file should not be edited and should be in your git ignore
