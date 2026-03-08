@@ -3,9 +3,11 @@ from __future__ import annotations
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +22,6 @@ from app.schemas.email import (
     EmailListItem,
     EmailListResponse,
     EmailSyncResponse,
-    GmailCallbackResponse,
     GmailConnectResponse,
 )
 from app.services.gmail_service import GmailService, GmailServiceError
@@ -46,108 +47,112 @@ async def connect_gmail(
     return GmailConnectResponse(oauth_url=oauth_url, state=state)
 
 
-@router.get("/connect/gmail/callback", response_model=GmailCallbackResponse)
+@router.get("/connect/gmail/callback")
 async def connect_gmail_callback(
     db: Annotated[AsyncSession, Depends(get_db)],
     redis: Annotated[Redis, Depends(get_redis)],
     code: str = Query(..., min_length=1),
     state: str = Query(..., min_length=1),
-) -> GmailCallbackResponse:
-    state_key = f"{STATE_KEY_PREFIX}:{state}"
-    user_id_raw = await redis.get(state_key)
-
-    if not isinstance(user_id_raw, str):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="state が無効または期限切れです",
-        )
-
-    await redis.delete(state_key)
-
+) -> RedirectResponse:
     try:
-        user_id = UUID(user_id_raw)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="state に紐づくユーザーIDが不正です",
-        ) from exc
+        state_key = f"{STATE_KEY_PREFIX}:{state}"
+        user_id_raw = await redis.get(state_key)
 
-    try:
-        tokens = await gmail_service.exchange_code_for_tokens(code)
-    except GmailServiceError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Google OAuthトークン交換に失敗しました",
-        ) from exc
+        if not isinstance(user_id_raw, str):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="state が無効または期限切れです",
+            )
 
-    access_token = tokens.get("access_token", "")
-    refresh_token_from_google = tokens.get("refresh_token", "")
-    expires_in_raw = tokens.get("expires_in", "3600")
+        await redis.delete(state_key)
 
-    if not access_token:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Googleからaccess_tokenを取得できませんでした",
-        )
-
-    stmt = select(EmailConnection).where(
-        EmailConnection.user_id == user_id,
-        EmailConnection.provider == EmailProvider.GMAIL,
-    )
-    result = await db.execute(stmt)
-    connection = result.scalar_one_or_none()
-
-    refresh_token = refresh_token_from_google
-    if not refresh_token and connection is not None:
         try:
-            refresh_token = decrypt_token(connection.refresh_token)
+            user_id = UUID(user_id_raw)
         except ValueError as exc:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="保存済みrefresh_tokenの復号に失敗しました",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="state に紐づくユーザーIDが不正です",
             ) from exc
 
-    if not refresh_token:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Googleからrefresh_tokenを取得できませんでした",
+        try:
+            tokens = await gmail_service.exchange_code_for_tokens(code)
+        except GmailServiceError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Google OAuthトークン交換に失敗しました",
+            ) from exc
+
+        access_token = tokens.get("access_token", "")
+        refresh_token_from_google = tokens.get("refresh_token", "")
+        expires_in_raw = tokens.get("expires_in", "3600")
+
+        if not access_token:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Googleからaccess_tokenを取得できませんでした",
+            )
+
+        stmt = select(EmailConnection).where(
+            EmailConnection.user_id == user_id,
+            EmailConnection.provider == EmailProvider.GMAIL,
         )
+        result = await db.execute(stmt)
+        connection = result.scalar_one_or_none()
 
-    try:
-        expires_in = int(expires_in_raw)
-    except ValueError:
-        expires_in = 3600
-    token_expiry = datetime.now(UTC) + timedelta(seconds=expires_in)
+        refresh_token = refresh_token_from_google
+        if not refresh_token and connection is not None:
+            try:
+                refresh_token = decrypt_token(connection.refresh_token)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="保存済みrefresh_tokenの復号に失敗しました",
+                ) from exc
 
-    encrypted_access_token = encrypt_token(access_token)
-    encrypted_refresh_token = encrypt_token(refresh_token)
+        if not refresh_token:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Googleからrefresh_tokenを取得できませんでした",
+            )
 
-    if connection is None:
-        connection = EmailConnection(
-            user_id=user_id,
-            provider=EmailProvider.GMAIL,
-            access_token=encrypted_access_token,
-            refresh_token=encrypted_refresh_token,
-            token_expiry=token_expiry,
-            last_synced_at=None,
-        )
-        db.add(connection)
-    else:
-        connection.access_token = encrypted_access_token
-        connection.refresh_token = encrypted_refresh_token
-        connection.token_expiry = token_expiry
+        try:
+            expires_in = int(expires_in_raw)
+        except ValueError:
+            expires_in = 3600
+        token_expiry = datetime.now(UTC) + timedelta(seconds=expires_in)
 
-    await db.flush()
+        encrypted_access_token = encrypt_token(access_token)
+        encrypted_refresh_token = encrypt_token(refresh_token)
 
-    try:
-        task_result = sync_emails_task.delay(str(user_id))
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="同期タスクの投入に失敗しました",
-        ) from exc
+        if connection is None:
+            connection = EmailConnection(
+                user_id=user_id,
+                provider=EmailProvider.GMAIL,
+                access_token=encrypted_access_token,
+                refresh_token=encrypted_refresh_token,
+                token_expiry=token_expiry,
+                last_synced_at=None,
+            )
+            db.add(connection)
+        else:
+            connection.access_token = encrypted_access_token
+            connection.refresh_token = encrypted_refresh_token
+            connection.token_expiry = token_expiry
 
-    return GmailCallbackResponse(status="connected", task_id=task_result.id)
+        await db.flush()
+
+        try:
+            task_result = sync_emails_task.delay(str(user_id))
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="同期タスクの投入に失敗しました",
+            ) from exc
+
+        return _build_gmail_callback_redirect(status_value="connected", task_id=task_result.id)
+    except HTTPException as exc:
+        message = exc.detail if isinstance(exc.detail, str) else "Gmail連携に失敗しました"
+        return _build_gmail_callback_redirect(status_value="error", message=message)
 
 
 @router.post("/sync", response_model=EmailSyncResponse)
@@ -216,3 +221,19 @@ def _extract_company_name(parsed_data: dict[str, object]) -> str | None:
             return info_name
 
     return None
+
+
+def _build_gmail_callback_redirect(
+    *,
+    status_value: str,
+    task_id: str | None = None,
+    message: str | None = None,
+) -> RedirectResponse:
+    params: dict[str, str] = {"status": status_value}
+    if task_id:
+        params["task_id"] = task_id
+    if message:
+        params["message"] = message
+
+    redirect_url = f"jobsync://emails/callback?{urlencode(params)}"
+    return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
