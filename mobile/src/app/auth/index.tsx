@@ -39,7 +39,9 @@ export default function LoginScreen() {
       const parsed = Linking.parse(url);
 
       // jobsync://auth/callback かどうか確認
-      if (parsed.path !== 'auth/callback') return;
+      // Linking.parse は jobsync://auth/callback を hostname='auth', path='callback' に分解するため
+      // raw URL で判定する
+      if (!url.startsWith('jobsync://auth/callback')) return;
 
       const params = parsed.queryParams as Record<string, string> | null;
       if (!params) return;
