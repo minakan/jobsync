@@ -12,6 +12,8 @@ export interface Company {
   userId: string;
   name: string;
   status: CompanyStatus;
+  priority: number;
+  notes?: string | null;
   note?: string | null;
   createdAt: string;
   updatedAt: string;
