@@ -4,10 +4,30 @@ import axios, {
   type AxiosInstance,
   type InternalAxiosRequestConfig,
 } from 'axios';
+import Constants from 'expo-constants';
 
 import { useAuthStore } from '../stores/authStore';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
+/**
+ * APIのベースURLを自動解決する。
+ * - 開発中（Expo Go）: MetroサーバーのIPから自動取得
+ *   例) hostUri = "192.168.11.5:8082" → "http://192.168.11.5:8000/api/v1"
+ * - 本番 or 明示設定: EXPO_PUBLIC_API_URL 環境変数を使用
+ */
+function resolveApiBaseUrl(): string {
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL;
+  }
+  // Expo Go 開発中: hostUri から IP を抽出してバックエンドポートに向ける
+  const hostUri = Constants.expoConfig?.hostUri;
+  if (hostUri) {
+    const ip = hostUri.split(':')[0];
+    return `http://${ip}:8000/api/v1`;
+  }
+  return 'http://localhost:8000/api/v1';
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 interface RefreshTokenPayload {
   accessToken?: string;
