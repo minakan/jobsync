@@ -31,13 +31,20 @@ step() { echo -e "\n${CYAN}━━━ $1 ━━━${NC}"; }
 # ────────────────────────────────────────────────────────────
 step "STEP 1/5: IPアドレス確認"
 
-IP=$(ipconfig getifaddr en0 2>/dev/null \
-  || ipconfig getifaddr en1 2>/dev/null \
-  || ipconfig getifaddr en2 2>/dev/null \
-  || true)
+# デフォルトルートのインターフェースからIPを取得（WiFi・テザリング・USB問わず対応）
+DEFAULT_IF=$(route get default 2>/dev/null | awk '/interface:/{print $2}')
+IP=$(ipconfig getifaddr "$DEFAULT_IF" 2>/dev/null || true)
+
+# フォールバック: 全インターフェースを順番に試す
+if [ -z "$IP" ]; then
+  for iface in en0 en1 en2 en3 en4 en5 en6 en7 bridge100; do
+    IP=$(ipconfig getifaddr "$iface" 2>/dev/null || true)
+    [ -n "$IP" ] && break
+  done
+fi
 
 if [ -z "$IP" ]; then
-  fail "IPアドレスが取得できませんでした。Wi-Fiに接続されているか確認してください。"
+  fail "IPアドレスが取得できませんでした。ネットワーク接続を確認してください。"
 fi
 
 ok "ローカルIP: $IP"
