@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import secrets
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Annotated
 from urllib.parse import urlencode
 from uuid import UUID
@@ -142,7 +144,10 @@ async def connect_gmail_callback(
         await db.flush()
 
         try:
-            task_result = sync_emails_task.delay(str(user_id))
+            loop = asyncio.get_event_loop()
+            task_result = await loop.run_in_executor(
+                None, partial(sync_emails_task.delay, str(user_id))
+            )
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -160,7 +165,10 @@ async def sync_emails(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> EmailSyncResponse:
     try:
-        task_result = sync_emails_task.delay(str(current_user.id))
+        loop = asyncio.get_event_loop()
+        task_result = await loop.run_in_executor(
+            None, partial(sync_emails_task.delay, str(current_user.id))
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -13,7 +13,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://jobsync:password@db:5432/jobsync_dev
       REDIS_URL: redis://redis:6379/0
       ENV: development
-      ALLOWED_ORIGINS: '["http://localhost:3000","http://localhost:8081","https://grumpy-stars-beam.loca.lt"]'
+      ALLOWED_ORIGINS: '["http://localhost:3000","http://localhost:8081","https://wise-cities-sing.loca.lt"]'
     volumes:
       - ./backend:/app
     depends_on:
