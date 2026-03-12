@@ -113,7 +113,7 @@ async def _sync_emails(user_id: str) -> dict[str, int | str]:
 
             email_row = Email(
                 user_id=user_uuid,
-                gmail_message_id=message_id,
+                message_id=message_id,
                 subject=subject_text or None,
                 sender_email=sender_email or None,
                 sender_name=sender_name or None,
@@ -181,12 +181,12 @@ async def _get_existing_message_ids(
     if not message_ids:
         return set()
 
-    stmt = select(Email.gmail_message_id).where(
+    stmt = select(Email.message_id).where(
         Email.user_id == user_id,
-        Email.gmail_message_id.in_(message_ids),
+        Email.message_id.in_(message_ids),
     )
     result = await session.execute(stmt)
-    return set(result.scalars().all())
+    return {value for value in result.scalars().all() if value is not None}
 
 
 async def _get_or_create_company(

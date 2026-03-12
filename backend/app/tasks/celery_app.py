@@ -7,7 +7,11 @@ celery_app = Celery(
     "jobsync",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
-    include=["app.tasks.email_sync_task", "app.tasks.reminder_task"],
+    include=[
+        "app.tasks.email_sync_task",
+        "app.tasks.inbound_email_task",
+        "app.tasks.reminder_task",
+    ],
 )
 
 celery_app.conf.update(

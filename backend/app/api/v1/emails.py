@@ -205,7 +205,7 @@ async def list_emails(
         items.append(
             EmailListItem(
                 id=str(email_row.id),
-                message_id=email_row.gmail_message_id,
+                message_id=email_row.message_id or "",
                 subject=email_row.subject or "",
                 sender=sender_display,
                 sender_email=sender_email,

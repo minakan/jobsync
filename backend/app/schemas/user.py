@@ -20,3 +20,7 @@ class UserResponse(BaseModel):
     graduation_year: int | None
     premium_until: datetime | None
     created_at: datetime
+
+
+class UserForwardingAddressResponse(BaseModel):
+    forwarding_email: str

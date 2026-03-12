@@ -1,139 +1,82 @@
-import { useMutation } from '@tanstack/react-query';
-import * as Linking from 'expo-linking';
+import { useQuery } from '@tanstack/react-query';
+import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
-  ToastAndroid,
   View,
 } from 'react-native';
 
-import { emailsApi } from '@/api/emails';
+import { usersApi } from '@/api/users';
 import { useAuthStore } from '@/stores/authStore';
 
-WebBrowser.maybeCompleteAuthSession();
+const FORWARDING_STEPS: { title: string; description: string }[] = [
+  {
+    title: 'STEP 1: 転送アドレスをコピー',
+    description: '上のアドレスをコピーしてください',
+  },
+  {
+    title: 'STEP 2: Gmailの設定を開く',
+    description:
+      'Gmailアプリ → 設定 → アカウント → メール転送\nまたは Gmail（PC）→ 設定 → 転送とPOP/IMAP',
+  },
+  {
+    title: 'STEP 3: 転送先を追加',
+    description: '「転送先アドレスを追加」でコピーしたアドレスを入力',
+  },
+  {
+    title: 'STEP 4: 確認メールを承認',
+    description:
+      'Gmailから確認メールが届きます\nJobSyncが自動的に承認するので、そのままお待ちください（1〜2分）',
+  },
+  {
+    title: 'STEP 5: フィルタを設定（推奨）',
+    description:
+      '就活関連メールだけを転送するフィルタを設定すると効率的です\n条件例: to:(あなたの就活用アドレス) または 件名に「選考」「面接」を含む',
+  },
+];
 
-type DeepLinkValue = string | string[] | undefined;
-
-const getSingleValue = (value: DeepLinkValue): string | undefined => {
-  if (Array.isArray(value)) {
-    return value[0];
-  }
-
-  return value;
-};
-
-const parseEmailCallback = (
-  url: string,
-): {
-  status?: string;
-  taskId?: string;
-} | null => {
-  if (!url.startsWith('jobsync://emails/callback')) {
-    return null;
-  }
-
-  const parsed = Linking.parse(url);
-  const params = parsed.queryParams as Record<string, DeepLinkValue> | null;
-
-  if (!params) {
-    return {};
-  }
-
-  return {
-    status: getSingleValue(params.status),
-    taskId: getSingleValue(params.task_id),
-  };
-};
-
-const showMessage = (title: string, message: string): void => {
-  if (Platform.OS === 'android') {
-    ToastAndroid.show(message, ToastAndroid.SHORT);
-    return;
-  }
-
-  Alert.alert(title, message);
-};
+const MONOSPACE_FONT = Platform.select({
+  ios: 'Menlo',
+  android: 'monospace',
+  default: 'monospace',
+});
 
 export default function SettingsScreen() {
-  const accessToken = useAuthStore((state) => state.accessToken);
   const logout = useAuthStore((state) => state.logout);
-  const [isGmailConnected, setIsGmailConnected] = useState(false);
-
-  const handleEmailCallback = useCallback((url: string): void => {
-    const parsed = parseEmailCallback(url);
-
-    if (!parsed || parsed.status !== 'connected') {
-      return;
-    }
-
-    setIsGmailConnected(true);
-  }, []);
+  const [isCopied, setIsCopied] = useState(false);
+  const forwardingAddressQuery = useQuery({
+    queryKey: ['forwarding-address'],
+    queryFn: usersApi.getForwardingAddress,
+  });
 
   useEffect(() => {
-    const subscription = Linking.addEventListener('url', ({ url }) => {
-      handleEmailCallback(url);
-    });
-
-    Linking.getInitialURL().then((url) => {
-      if (url) {
-        handleEmailCallback(url);
-      }
-    });
-
-    return () => subscription.remove();
-  }, [handleEmailCallback]);
-
-  const connectMutation = useMutation({
-    mutationFn: () => emailsApi.connectGmail(),
-  });
-
-  const syncMutation = useMutation({
-    mutationFn: () => emailsApi.sync(),
-    onSuccess: ({ task_id }) => {
-      setIsGmailConnected(true);
-      showMessage('同期開始', `メール同期を開始しました (task_id: ${task_id})`);
-    },
-    onError: (error) => {
-      console.error('Email sync error:', error);
-      Alert.alert('同期エラー', 'メール同期に失敗しました。ネットワーク接続を確認してください。');
-    },
-  });
-
-  const handleConnectPress = async (): Promise<void> => {
-    if (!accessToken) {
-      Alert.alert('認証エラー', 'セッションが無効です。再ログインしてください。');
+    if (!isCopied) {
       return;
     }
 
-    try {
-      const { oauth_url } = await connectMutation.mutateAsync();
-      const result = await WebBrowser.openAuthSessionAsync(oauth_url, 'jobsync://emails/callback');
+    const timer = setTimeout(() => {
+      setIsCopied(false);
+    }, 2000);
 
-      if (result.type === 'success' && result.url) {
-        handleEmailCallback(result.url);
-      }
-    } catch (error) {
-      console.error('Gmail connect error:', error);
-      Alert.alert('連携エラー', 'Gmail 連携に失敗しました。時間をおいて再試行してください。');
-    }
-  };
+    return () => clearTimeout(timer);
+  }, [isCopied]);
 
-  const handleSyncPress = (): void => {
-    if (!accessToken) {
-      Alert.alert('認証エラー', 'セッションが無効です。再ログインしてください。');
+  const handleCopyPress = async (): Promise<void> => {
+    const address = forwardingAddressQuery.data?.forwarding_email;
+
+    if (!address) {
       return;
     }
 
-    syncMutation.mutate();
+    await Clipboard.setStringAsync(address);
+    setIsCopied(true);
   };
 
   const handleLogout = (): void => {
@@ -149,51 +92,69 @@ export default function SettingsScreen() {
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Gmail 連携</Text>
           <Text style={styles.sectionDescription}>
-            Gmail を連携すると、選考メールを解析して予定を自動で取り込みます。
+            Gmailの自動転送を設定すると、選考メールを解析して予定を自動で取り込みます。
           </Text>
 
-          {isGmailConnected ? (
-            <>
-              <View style={styles.connectedBadge}>
-                <Text style={styles.connectedText}>連携済み ✓</Text>
-              </View>
-
+          {forwardingAddressQuery.isLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator color="#fff" size="small" />
+            </View>
+          ) : forwardingAddressQuery.isError ? (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>アドレスを取得できませんでした</Text>
               <Pressable
                 style={({ pressed }) => [
                   styles.primaryButton,
-                  (pressed || syncMutation.isPending) && styles.buttonPressed,
-                  syncMutation.isPending && styles.buttonDisabled,
+                  (pressed || forwardingAddressQuery.isFetching) && styles.buttonPressed,
+                  forwardingAddressQuery.isFetching && styles.buttonDisabled,
                 ]}
-                onPress={handleSyncPress}
-                disabled={syncMutation.isPending}
+                onPress={() => {
+                  void forwardingAddressQuery.refetch();
+                }}
+                disabled={forwardingAddressQuery.isFetching}
               >
-                {syncMutation.isPending ? (
+                {forwardingAddressQuery.isFetching ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <Text style={styles.primaryButtonText}>同期する</Text>
+                  <Text style={styles.primaryButtonText}>再試行</Text>
                 )}
               </Pressable>
-            </>
+            </View>
           ) : (
-            <Pressable
-              style={({ pressed }) => [
-                styles.primaryButton,
-                (pressed || connectMutation.isPending) && styles.buttonPressed,
-                (connectMutation.isPending || !accessToken) && styles.buttonDisabled,
-              ]}
-              onPress={handleConnectPress}
-              disabled={connectMutation.isPending || !accessToken}
-            >
-              {connectMutation.isPending ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Text style={styles.primaryButtonText}>Gmail を連携する</Text>
-              )}
-            </Pressable>
+            <>
+              <View style={styles.addressBox}>
+                <Text style={styles.addressLabel}>転送先アドレス</Text>
+                <Text style={styles.addressText}>
+                  {forwardingAddressQuery.data?.forwarding_email ?? ''}
+                </Text>
+              </View>
+
+              <Pressable
+                style={({ pressed }) => [styles.primaryButton, pressed && styles.buttonPressed]}
+                onPress={() => {
+                  void handleCopyPress();
+                }}
+              >
+                <Text style={styles.primaryButtonText}>{isCopied ? 'コピーしました' : 'コピー'}</Text>
+              </Pressable>
+            </>
           )}
+
+          <View style={styles.guideCard}>
+            <Text style={styles.guideTitle}>【Gmailで転送設定する手順】</Text>
+            {FORWARDING_STEPS.map((step) => (
+              <View key={step.title} style={styles.stepItem}>
+                <Text style={styles.stepTitle}>{step.title}</Text>
+                <Text style={styles.stepDescription}>{step.description}</Text>
+              </View>
+            ))}
+          </View>
         </View>
 
-        <Pressable style={({ pressed }) => [styles.logoutButton, pressed && styles.buttonPressed]} onPress={handleLogout}>
+        <Pressable
+          style={({ pressed }) => [styles.logoutButton, pressed && styles.buttonPressed]}
+          onPress={handleLogout}
+        >
           <Text style={styles.logoutButtonText}>ログアウト</Text>
         </Pressable>
       </ScrollView>
@@ -236,19 +197,35 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: '#9ca3af',
   },
-  connectedBadge: {
-    alignSelf: 'flex-start',
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#00B87C66',
-    backgroundColor: '#00B87C22',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 56,
   },
-  connectedText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#7CFFD2',
+  errorContainer: {
+    gap: 10,
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#ff9d9d',
+  },
+  addressBox: {
+    backgroundColor: '#1a1a1a',
+    borderWidth: 1,
+    borderColor: '#333',
+    borderRadius: 12,
+    padding: 14,
+    gap: 8,
+  },
+  addressLabel: {
+    fontSize: 12,
+    color: '#9ca3af',
+  },
+  addressText: {
+    color: '#fff',
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: MONOSPACE_FONT,
   },
   primaryButton: {
     minHeight: 52,
@@ -275,6 +252,33 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#ff9d9d',
+  },
+  guideCard: {
+    marginTop: 4,
+    backgroundColor: '#151515',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#262626',
+    padding: 14,
+    gap: 12,
+  },
+  guideTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  stepItem: {
+    gap: 4,
+  },
+  stepTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  stepDescription: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#c4c4c4',
   },
   buttonPressed: {
     opacity: 0.85,

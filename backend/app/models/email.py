@@ -24,7 +24,12 @@ class Email(BaseModel):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    gmail_message_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    message_id: Mapped[str | None] = mapped_column(
+        String(512),
+        unique=True,
+        nullable=True,
+        index=True,
+    )
     subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
     sender_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     sender_name: Mapped[str | None] = mapped_column(String(255), nullable=True)

@@ -8,6 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.security import create_access_token
 from app.models.user import User
 
@@ -73,3 +74,70 @@ async def test_update_fcm_token_too_long(
     )
 
     assert response.status_code == 422
+
+
+async def test_get_forwarding_address_generates_and_persists(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    user_factory: UserFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = await user_factory()
+    generated_forwarding_email = "u_a1b2c3d4@mail.jobsync.app"
+
+    called_domains: list[str] = []
+
+    def _fake_generator(domain: str) -> str:
+        called_domains.append(domain)
+        return generated_forwarding_email
+
+    monkeypatch.setattr("app.api.v1.users.generate_forwarding_address", _fake_generator)
+
+    response = await client.get(
+        "/api/v1/users/me/forwarding-address",
+        headers=_auth_headers(user.id),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"forwarding_email": generated_forwarding_email}
+    assert called_domains == [settings.FORWARDING_EMAIL_DOMAIN]
+
+    updated_user = (
+        await db_session.execute(
+            select(User).where(
+                User.id == user.id,
+            )
+        )
+    ).scalar_one()
+    assert updated_user.forwarding_email == generated_forwarding_email
+
+
+async def test_get_forwarding_address_returns_existing_value(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    user_factory: UserFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = await user_factory()
+    existing_forwarding_email = "u_existing1@mail.jobsync.app"
+    user.forwarding_email = existing_forwarding_email
+    db_session.add(user)
+    await db_session.flush()
+
+    def _unexpected_call(_: str) -> str:
+        raise AssertionError("generate_forwarding_address should not be called")
+
+    monkeypatch.setattr("app.api.v1.users.generate_forwarding_address", _unexpected_call)
+
+    response = await client.get(
+        "/api/v1/users/me/forwarding-address",
+        headers=_auth_headers(user.id),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"forwarding_email": existing_forwarding_email}
+
+
+async def test_get_forwarding_address_unauthorized(client: AsyncClient) -> None:
+    response = await client.get("/api/v1/users/me/forwarding-address")
+    assert response.status_code == 401

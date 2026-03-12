@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     # ログイン認証OAuth用（openid email profile スコープ）
     AUTH_GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/google/callback"
 
+    # ── Mailgun / Forwarding ──────────────────────────────────
+    MAILGUN_API_KEY: str = ""
+    MAILGUN_DOMAIN: str = "mail.jobsync.app"
+    MAILGUN_WEBHOOK_SIGNING_KEY: str = ""
+    FORWARDING_EMAIL_DOMAIN: str = "mail.jobsync.app"
+
     # ── JWT ───────────────────────────────────────────────────
     JWT_SECRET_KEY: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"

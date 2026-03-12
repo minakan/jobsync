@@ -10,11 +10,6 @@ export interface EmailListItem {
   company_name: string | null;
 }
 
-export interface ConnectGmailResponse {
-  oauth_url: string;
-  state: string;
-}
-
 export interface SyncEmailsResponse {
   task_id: string;
   status: string;
@@ -25,11 +20,6 @@ interface EmailListResponse {
 }
 
 export const emailsApi = {
-  connectGmail: async (): Promise<ConnectGmailResponse> => {
-    const response = await apiClient.post<ConnectGmailResponse>('/emails/connect/gmail');
-    return response.data;
-  },
-
   sync: async (): Promise<SyncEmailsResponse> => {
     const response = await apiClient.post<SyncEmailsResponse>('/emails/sync');
     return response.data;
