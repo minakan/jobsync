@@ -5,15 +5,18 @@ import { Platform } from 'react-native';
 
 import { apiClient } from '../api/client';
 
-type SupportedRoute = '/(tabs)' | '/(tabs)/index';
+type SupportedRoute = '/(tabs)' | '/companies' | '/schedules';
 
 let handlersInitialized = false;
 
 const resolveRoute = (data: Record<string, unknown>): SupportedRoute => {
   const route = data.route;
 
-  if (route === '/(tabs)' || route === '/(tabs)/index') {
+  if (route === '/companies' || route === '/schedules' || route === '/(tabs)') {
     return route;
+  }
+  if (route === '/(tabs)/index') {
+    return '/(tabs)';
   }
 
   return '/(tabs)';
@@ -74,6 +77,8 @@ export function setupNotificationHandlers(): void {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
       shouldPlaySound: false,
       shouldSetBadge: false,
     }),
