@@ -31,9 +31,9 @@ class Settings(BaseSettings):
 
     # ── Mailgun / Forwarding ──────────────────────────────────
     MAILGUN_API_KEY: str = ""
-    MAILGUN_DOMAIN: str = "mail.jobsync.app"
+    MAILGUN_DOMAIN: str = "mail.code-peng.com"
     MAILGUN_WEBHOOK_SIGNING_KEY: str = ""
-    FORWARDING_EMAIL_DOMAIN: str = "mail.jobsync.app"
+    FORWARDING_EMAIL_DOMAIN: str = "mail.code-peng.com"
 
     # ── JWT ───────────────────────────────────────────────────
     JWT_SECRET_KEY: str = "change-me-in-production"
