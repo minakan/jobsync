@@ -36,6 +36,12 @@ export interface CreateCompanyPayload {
   notes?: string;
 }
 
+export interface UpdateCompanyPayload {
+  status?: CompanyStatus;
+  priority?: number;
+  notes?: string;
+}
+
 const normalizeList = <T>(payload: T[] | ListResponse<T>): T[] => {
   if (Array.isArray(payload)) {
     return payload;
@@ -98,4 +104,29 @@ export const createCompany = async (payload: CreateCompanyPayload): Promise<Comp
   });
 
   return normalizeCompany(response.data);
+};
+
+export const updateCompany = async (id: string, payload: UpdateCompanyPayload): Promise<Company> => {
+  const updatePayload: {
+    status?: CompanyStatus;
+    priority?: number;
+    notes?: string | null;
+  } = {};
+
+  if (payload.status !== undefined) {
+    updatePayload.status = payload.status;
+  }
+  if (payload.priority !== undefined) {
+    updatePayload.priority = payload.priority;
+  }
+  if (payload.notes !== undefined) {
+    updatePayload.notes = payload.notes.trim().length > 0 ? payload.notes : null;
+  }
+
+  const response = await apiClient.patch<CompanyApiModel>(`/companies/${id}`, updatePayload);
+  return normalizeCompany(response.data);
+};
+
+export const deleteCompany = async (id: string): Promise<void> => {
+  await apiClient.delete(`/companies/${id}`);
 };
