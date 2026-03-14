@@ -58,7 +58,7 @@ def _build_signature(timestamp: str, token: str, key: str) -> str:
     ).hexdigest()
 
 
-async def test_inbound_invalid_signature_returns_400(
+async def test_inbound_invalid_signature_returns_401(
     inbound_client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -79,7 +79,7 @@ async def test_inbound_invalid_signature_returns_400(
         },
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 401
     assert response.json()["detail"] == "invalid mailgun signature"
 
 

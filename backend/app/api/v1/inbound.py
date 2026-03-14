@@ -84,12 +84,12 @@ async def receive_inbound_email(
     if settings.ENV != "development":
         if not timestamp or not token or not signature:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="invalid mailgun signature",
             )
         if not verify_mailgun_signature(timestamp=timestamp, token=token, signature=signature):
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="invalid mailgun signature",
             )
 
