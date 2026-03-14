@@ -30,7 +30,7 @@ export const ScheduleCard = ({ schedule, showCountdown = true, onLongPress }: Sc
             <Text style={styles.companyName} numberOfLines={1}>
               {schedule.companyName}
             </Text>
-            <View style={[styles.typeBadge, { backgroundColor: typeStyle.soft }]}> 
+            <View style={[styles.typeBadge, { backgroundColor: typeStyle.soft }]}>
               <Text style={[styles.typeLabel, { color: typeStyle.color }]}>{typeStyle.label}</Text>
             </View>
           </View>
