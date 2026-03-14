@@ -1,6 +1,6 @@
 import { apiClient } from './client';
 
-import { type Schedule } from '../types/schedule';
+import { type Schedule, type ScheduleType } from '../types/schedule';
 
 interface ListResponse<T> {
   items: T[];
@@ -34,6 +34,13 @@ export interface CreateSchedulePayload {
   title: string;
   notes?: string;
   deadlineDate?: string;
+}
+
+export interface UpdateSchedulePayload {
+  type?: ScheduleType;
+  title?: string;
+  scheduledAt?: string;
+  companyId?: string;
 }
 
 const normalizeList = <T>(payload: T[] | ListResponse<T>): T[] => {
@@ -95,6 +102,38 @@ export const createSchedule = async (payload: CreateSchedulePayload): Promise<Sc
   });
 
   return normalizeSchedule(response.data);
+};
+
+export const updateSchedule = async (
+  id: string,
+  payload: UpdateSchedulePayload,
+): Promise<Schedule> => {
+  const updatePayload: {
+    type?: ScheduleType;
+    title?: string;
+    scheduled_at?: string;
+    company_id?: string;
+  } = {};
+
+  if (payload.type !== undefined) {
+    updatePayload.type = payload.type;
+  }
+  if (payload.title !== undefined) {
+    updatePayload.title = payload.title;
+  }
+  if (payload.scheduledAt !== undefined) {
+    updatePayload.scheduled_at = payload.scheduledAt;
+  }
+  if (payload.companyId !== undefined) {
+    updatePayload.company_id = payload.companyId;
+  }
+
+  const response = await apiClient.patch<ScheduleApiModel>(`/schedules/${id}`, updatePayload);
+  return normalizeSchedule(response.data);
+};
+
+export const deleteSchedule = async (id: string): Promise<void> => {
+  await apiClient.delete(`/schedules/${id}`);
 };
 
 export const triggerEmailSyncRequest = async (): Promise<void> => {

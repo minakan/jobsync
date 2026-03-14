@@ -1,6 +1,6 @@
 import { differenceInHours, format, isValid, parseISO } from 'date-fns';
 import { ja } from 'date-fns/locale';
-import { StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 
 import { CountdownTimer } from './CountdownTimer';
 
@@ -9,6 +9,7 @@ import { type Schedule, type ScheduleType } from '../../types/schedule';
 interface ScheduleCardProps {
   schedule: Schedule;
   showCountdown?: boolean;
+  onLongPress?: () => void;
 }
 
 const TYPE_STYLES: Record<ScheduleType, { label: string; color: string }> = {
@@ -18,7 +19,7 @@ const TYPE_STYLES: Record<ScheduleType, { label: string; color: string }> = {
   event: { label: 'イベント', color: '#10B981' },
 };
 
-export const ScheduleCard = ({ schedule, showCountdown = true }: ScheduleCardProps) => {
+export const ScheduleCard = ({ schedule, showCountdown = true, onLongPress }: ScheduleCardProps) => {
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
   const typeStyle = TYPE_STYLES[schedule.type];
@@ -29,35 +30,37 @@ export const ScheduleCard = ({ schedule, showCountdown = true }: ScheduleCardPro
   const shouldShowCountdown = showCountdown && isDateValid && hoursToEvent <= 72 && hoursToEvent >= 0;
 
   return (
-    <View
-      style={[
-        styles.card,
-        {
-          borderLeftColor: typeStyle.color,
-          backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
-          borderColor: isDarkMode ? '#374151' : '#E5E7EB',
-        },
-      ]}
-    >
-      <View style={styles.row}>
-        <Text style={[styles.companyName, { color: isDarkMode ? '#F9FAFB' : '#111827' }]}>
-          {schedule.companyName}
-        </Text>
-        <View style={[styles.typeBadge, { backgroundColor: `${typeStyle.color}1A` }]}>
-          <Text style={[styles.typeLabel, { color: typeStyle.color }]}>{typeStyle.label}</Text>
+    <Pressable onLongPress={onLongPress} delayLongPress={280}>
+      <View
+        style={[
+          styles.card,
+          {
+            borderLeftColor: typeStyle.color,
+            backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
+            borderColor: isDarkMode ? '#374151' : '#E5E7EB',
+          },
+        ]}
+      >
+        <View style={styles.row}>
+          <Text style={[styles.companyName, { color: isDarkMode ? '#F9FAFB' : '#111827' }]}>
+            {schedule.companyName}
+          </Text>
+          <View style={[styles.typeBadge, { backgroundColor: `${typeStyle.color}1A` }]}>
+            <Text style={[styles.typeLabel, { color: typeStyle.color }]}>{typeStyle.label}</Text>
+          </View>
         </View>
+
+        <Text style={[styles.title, { color: isDarkMode ? '#E5E7EB' : '#374151' }]}>{schedule.title}</Text>
+
+        <Text style={[styles.dateLabel, { color: isDarkMode ? '#9CA3AF' : '#6B7280' }]}>
+          {isDateValid
+            ? format(scheduledDate, 'M月d日(E) HH:mm', { locale: ja })
+            : '日時が不正です'}
+        </Text>
+
+        {shouldShowCountdown ? <CountdownTimer scheduledAt={schedule.scheduledAt} /> : null}
       </View>
-
-      <Text style={[styles.title, { color: isDarkMode ? '#E5E7EB' : '#374151' }]}>{schedule.title}</Text>
-
-      <Text style={[styles.dateLabel, { color: isDarkMode ? '#9CA3AF' : '#6B7280' }]}>
-        {isDateValid
-          ? format(scheduledDate, 'M月d日(E) HH:mm', { locale: ja })
-          : '日時が不正です'}
-      </Text>
-
-      {shouldShowCountdown ? <CountdownTimer scheduledAt={schedule.scheduledAt} /> : null}
-    </View>
+    </Pressable>
   );
 };
 
