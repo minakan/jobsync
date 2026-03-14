@@ -3,8 +3,9 @@ import { ja } from 'date-fns/locale';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CountdownTimer } from './CountdownTimer';
+import { SCHEDULE_TYPE_META } from './scheduleTypeMeta';
 
-import { type Schedule, type ScheduleType } from '../../types/schedule';
+import { type Schedule } from '../../types/schedule';
 import { colors, radius } from '@/theme/tokens';
 
 interface ScheduleCardProps {
@@ -13,15 +14,8 @@ interface ScheduleCardProps {
   onLongPress?: () => void;
 }
 
-const TYPE_STYLES: Record<ScheduleType, { label: string; color: string; soft: string }> = {
-  es_deadline: { label: 'ES締切', color: '#DC2626', soft: '#FEE2E2' },
-  interview: { label: '面接', color: '#1D4ED8', soft: '#DBEAFE' },
-  exam: { label: '試験', color: '#C2410C', soft: '#FFEDD5' },
-  event: { label: 'イベント', color: '#15803D', soft: '#DCFCE7' },
-};
-
 export const ScheduleCard = ({ schedule, showCountdown = true, onLongPress }: ScheduleCardProps) => {
-  const typeStyle = TYPE_STYLES[schedule.type];
+  const typeStyle = SCHEDULE_TYPE_META[schedule.type];
 
   const scheduledDate = parseISO(schedule.scheduledAt);
   const isDateValid = isValid(scheduledDate);

@@ -4,6 +4,7 @@ import {
   Alert,
   Modal,
   Pressable,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   SectionList,
@@ -13,7 +14,7 @@ import {
   View,
 } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { addHours, format, isThisWeek, isToday, isValid, parseISO } from 'date-fns';
+import { addHours, addMonths, addWeeks, format, isSameDay, isValid, startOfDay, startOfMonth, startOfWeek } from 'date-fns';
 
 import { companyQueryKeys, fetchCompanies } from '../../api/companies';
 import {
@@ -23,18 +24,34 @@ import {
   scheduleQueryKeys,
   updateSchedule,
 } from '../../api/schedules';
+import { DayAgenda } from '@/components/schedule/DayAgenda';
+import { MonthCalendar } from '@/components/schedule/MonthCalendar';
 import { ScheduleCard } from '../../components/schedule/ScheduleCard';
+import { ScheduleViewSwitcher } from '@/components/schedule/ScheduleViewSwitcher';
+import { WeekStrip } from '@/components/schedule/WeekStrip';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SectionHeader } from '@/components/ui/SectionHeader';
+import { colors, radius, shadow, spacing } from '@/theme/tokens';
 import { type Company } from '../../types/company';
 import { type Schedule, type ScheduleType } from '../../types/schedule';
-import { colors, radius, shadow, spacing } from '@/theme/tokens';
+import {
+  WEEK_STARTS_ON,
+  type MonthGridCell,
+  type ScheduleSection,
+  type ScheduleViewMode,
+  buildMonthGrid,
+  buildScheduleDayMap,
+  buildWeekBuckets,
+  groupSchedulesBySections,
+  parseScheduleDate,
+  toDateKey,
+} from '@/utils/scheduleCalendar';
 
-interface ScheduleSection {
-  title: string;
-  data: Schedule[];
+interface MonthCalendarCellModel extends MonthGridCell {
+  isToday: boolean;
+  isSelected: boolean;
 }
 
 const SCHEDULE_TYPES: Array<{ value: ScheduleType; label: string }> = [
@@ -50,67 +67,6 @@ const getErrorMessage = (error: unknown): string => {
   }
 
   return '通信に失敗しました。時間をおいて再試行してください。';
-};
-
-const parseScheduleDate = (value: string): Date | null => {
-  const parsed = parseISO(value);
-  if (!isValid(parsed)) {
-    return null;
-  }
-
-  return parsed;
-};
-
-const sortByScheduledAt = (left: Schedule, right: Schedule): number => {
-  const leftDate = parseScheduleDate(left.scheduledAt);
-  const rightDate = parseScheduleDate(right.scheduledAt);
-
-  if (!leftDate && !rightDate) {
-    return 0;
-  }
-
-  if (!leftDate) {
-    return 1;
-  }
-
-  if (!rightDate) {
-    return -1;
-  }
-
-  return leftDate.getTime() - rightDate.getTime();
-};
-
-const groupSchedules = (schedules: Schedule[]): ScheduleSection[] => {
-  const today: Schedule[] = [];
-  const thisWeek: Schedule[] = [];
-  const later: Schedule[] = [];
-
-  for (const schedule of schedules) {
-    const scheduleDate = parseScheduleDate(schedule.scheduledAt);
-
-    if (!scheduleDate) {
-      later.push(schedule);
-      continue;
-    }
-
-    if (isToday(scheduleDate)) {
-      today.push(schedule);
-      continue;
-    }
-
-    if (isThisWeek(scheduleDate, { weekStartsOn: 1 })) {
-      thisWeek.push(schedule);
-      continue;
-    }
-
-    later.push(schedule);
-  }
-
-  return [
-    { title: '今日', data: [...today].sort(sortByScheduledAt) },
-    { title: '今週', data: [...thisWeek].sort(sortByScheduledAt) },
-    { title: 'それ以降', data: [...later].sort(sortByScheduledAt) },
-  ];
 };
 
 const getDefaultDateTimeInput = (): { date: string; time: string } => {
@@ -136,7 +92,15 @@ const getDateTimeInputFromSchedule = (scheduledAt: string): { date: string; time
 
 export default function SchedulesScreen() {
   const queryClient = useQueryClient();
+  const initialDate = useMemo(() => startOfDay(new Date()), []);
   const defaultDateTime = useMemo(() => getDefaultDateTimeInput(), []);
+
+  const [viewMode, setViewMode] = useState<ScheduleViewMode>('list');
+  const [selectedDate, setSelectedDate] = useState<Date>(initialDate);
+  const [focusedWeekStart, setFocusedWeekStart] = useState<Date>(
+    startOfWeek(initialDate, { weekStartsOn: WEEK_STARTS_ON }),
+  );
+  const [focusedMonth, setFocusedMonth] = useState<Date>(startOfMonth(initialDate));
 
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
@@ -235,16 +199,82 @@ export default function SchedulesScreen() {
   }, [companies, createCompanyId]);
 
   const groupedSections = useMemo<ScheduleSection[]>(() => {
-    return groupSchedules(schedules);
+    return groupSchedulesBySections(schedules);
   }, [schedules]);
 
   const hasSchedules = groupedSections.some((section) => section.data.length > 0);
   const sections = hasSchedules ? groupedSections.filter((section) => section.data.length > 0) : [];
 
+  const schedulesByDay = useMemo<Map<string, Schedule[]>>(() => {
+    return buildScheduleDayMap(schedules);
+  }, [schedules]);
+
+  const weekBuckets = useMemo(() => {
+    return buildWeekBuckets(schedulesByDay);
+  }, [schedulesByDay]);
+
+  const selectedDayKey = useMemo(() => {
+    return toDateKey(selectedDate);
+  }, [selectedDate]);
+
+  const selectedDaySchedules = useMemo<Schedule[]>(() => {
+    return schedulesByDay.get(selectedDayKey) ?? [];
+  }, [schedulesByDay, selectedDayKey]);
+
+  const focusedWeekKey = useMemo(() => {
+    return toDateKey(focusedWeekStart);
+  }, [focusedWeekStart]);
+
+  const focusedWeekSchedules = useMemo<Schedule[]>(() => {
+    const selectedWeek = weekBuckets.find((bucket) => bucket.key === focusedWeekKey);
+    return selectedWeek?.schedules ?? [];
+  }, [focusedWeekKey, weekBuckets]);
+
+  const monthCells = useMemo<MonthCalendarCellModel[]>(() => {
+    const monthGrid = buildMonthGrid(focusedMonth, schedulesByDay);
+
+    return monthGrid.map((cell) => ({
+      ...cell,
+      isToday: isSameDay(cell.date, initialDate),
+      isSelected: cell.key === selectedDayKey,
+    }));
+  }, [focusedMonth, initialDate, schedulesByDay, selectedDayKey]);
+
   const isEditPending = updateScheduleMutation.isPending || deleteScheduleMutation.isPending;
+  const isRefreshing = schedulesQuery.isRefetching || companiesQuery.isRefetching;
 
   const handleRefresh = async (): Promise<void> => {
     await Promise.all([schedulesQuery.refetch(), companiesQuery.refetch()]);
+  };
+
+  const handleSelectDate = (date: Date): void => {
+    const normalized = startOfDay(date);
+
+    setSelectedDate(normalized);
+    setFocusedWeekStart(startOfWeek(normalized, { weekStartsOn: WEEK_STARTS_ON }));
+    setFocusedMonth(startOfMonth(normalized));
+  };
+
+  const handleChangeViewMode = (nextMode: ScheduleViewMode): void => {
+    setViewMode(nextMode);
+
+    if (nextMode === 'week') {
+      setFocusedWeekStart(startOfWeek(selectedDate, { weekStartsOn: WEEK_STARTS_ON }));
+    }
+
+    if (nextMode === 'month') {
+      setFocusedMonth(startOfMonth(selectedDate));
+    }
+  };
+
+  const openCreateModal = (): void => {
+    const nextDateTime = getDefaultDateTimeInput();
+
+    setCreateType('interview');
+    setCreateTitle('');
+    setCreateTimeInput(nextDateTime.time);
+    setCreateDateInput(viewMode === 'list' ? nextDateTime.date : format(selectedDate, 'yyyy-MM-dd'));
+    setIsCreateModalVisible(true);
   };
 
   const handleCreateSchedule = async (): Promise<void> => {
@@ -343,50 +373,185 @@ export default function SchedulesScreen() {
     ]);
   };
 
+  const handlePrevWeek = (): void => {
+    const nextSelected = startOfDay(addWeeks(selectedDate, -1));
+    setSelectedDate(nextSelected);
+    setFocusedWeekStart(startOfWeek(nextSelected, { weekStartsOn: WEEK_STARTS_ON }));
+    setFocusedMonth(startOfMonth(nextSelected));
+  };
+
+  const handleNextWeek = (): void => {
+    const nextSelected = startOfDay(addWeeks(selectedDate, 1));
+    setSelectedDate(nextSelected);
+    setFocusedWeekStart(startOfWeek(nextSelected, { weekStartsOn: WEEK_STARTS_ON }));
+    setFocusedMonth(startOfMonth(nextSelected));
+  };
+
+  const handlePrevMonth = (): void => {
+    const nextFocused = startOfMonth(addMonths(focusedMonth, -1));
+    const nextSelected = startOfDay(addMonths(selectedDate, -1));
+
+    setFocusedMonth(nextFocused);
+    setSelectedDate(nextSelected);
+    setFocusedWeekStart(startOfWeek(nextSelected, { weekStartsOn: WEEK_STARTS_ON }));
+  };
+
+  const handleNextMonth = (): void => {
+    const nextFocused = startOfMonth(addMonths(focusedMonth, 1));
+    const nextSelected = startOfDay(addMonths(selectedDate, 1));
+
+    setFocusedMonth(nextFocused);
+    setSelectedDate(nextSelected);
+    setFocusedWeekStart(startOfWeek(nextSelected, { weekStartsOn: WEEK_STARTS_ON }));
+  };
+
+  const renderListView = () => {
+    return (
+      <SectionList
+        sections={sections}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => <ScheduleCard schedule={item} onLongPress={() => openEditModal(item)} />}
+        renderSectionHeader={({ section }) => <Text style={styles.sectionTitle}>{section.title}</Text>}
+        contentContainerStyle={styles.listContent}
+        stickySectionHeadersEnabled={false}
+        onRefresh={handleRefresh}
+        refreshing={isRefreshing}
+        ItemSeparatorComponent={() => <View style={styles.listGap} />}
+        SectionSeparatorComponent={() => <View style={styles.sectionGap} />}
+        ListEmptyComponent={
+          !hasSchedules ? (
+            <AppCard>
+              <EmptyState
+                title="スケジュールを追加してください"
+                description="＋ボタンから面接や締切を登録できます。"
+              />
+            </AppCard>
+          ) : null
+        }
+      />
+    );
+  };
+
+  const renderDayView = () => {
+    return (
+      <ScrollView
+        contentContainerStyle={styles.viewContent}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => void handleRefresh()} />}
+      >
+        <DayAgenda
+          date={selectedDate}
+          schedules={selectedDaySchedules}
+          emptyTitle="この日の予定はありません"
+          emptyDescription="別の日を選択するか、＋ボタンから予定を追加してください。"
+          onLongPressSchedule={openEditModal}
+        />
+      </ScrollView>
+    );
+  };
+
+  const renderWeekView = () => {
+    return (
+      <ScrollView
+        contentContainerStyle={styles.viewContent}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => void handleRefresh()} />}
+      >
+        <WeekStrip
+          weekStart={focusedWeekStart}
+          selectedDate={selectedDate}
+          dayMap={schedulesByDay}
+          onSelectDate={handleSelectDate}
+          onPrevWeek={handlePrevWeek}
+          onNextWeek={handleNextWeek}
+        />
+
+        {focusedWeekSchedules.length === 0 ? (
+          <AppCard>
+            <EmptyState
+              title="今週の予定はありません"
+              description="別の週へ移動するか、＋ボタンから予定を追加してください。"
+            />
+          </AppCard>
+        ) : null}
+
+        <DayAgenda
+          date={selectedDate}
+          schedules={selectedDaySchedules}
+          emptyTitle="選択日の予定はありません"
+          emptyDescription="週上部の日付を切り替えると、日別の予定を確認できます。"
+          onLongPressSchedule={openEditModal}
+        />
+      </ScrollView>
+    );
+  };
+
+  const renderMonthView = () => {
+    return (
+      <ScrollView
+        contentContainerStyle={styles.viewContent}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => void handleRefresh()} />}
+      >
+        <MonthCalendar
+          focusedMonth={focusedMonth}
+          cells={monthCells}
+          onSelectDate={handleSelectDate}
+          onPrevMonth={handlePrevMonth}
+          onNextMonth={handleNextMonth}
+          onLongPressCell={(cell) => {
+            const firstSchedule = cell.schedules[0];
+            if (firstSchedule) {
+              openEditModal(firstSchedule);
+            }
+          }}
+        />
+
+        <DayAgenda
+          date={selectedDate}
+          schedules={selectedDaySchedules}
+          emptyTitle="この日の予定はありません"
+          emptyDescription="月カレンダーの日付をタップして詳細を確認できます。"
+          onLongPressSchedule={openEditModal}
+        />
+      </ScrollView>
+    );
+  };
+
+  const renderCurrentView = () => {
+    if (viewMode === 'day') {
+      return renderDayView();
+    }
+
+    if (viewMode === 'week') {
+      return renderWeekView();
+    }
+
+    if (viewMode === 'month') {
+      return renderMonthView();
+    }
+
+    return renderListView();
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
+      <View style={styles.screenHeader}>
+        <SectionHeader
+          title="予定管理"
+          subtitle="一覧 / 日 / 週 / 月ビューを切り替え（カード・セル長押しで編集）"
+        />
+        <ScheduleViewSwitcher value={viewMode} onChange={handleChangeViewMode} />
+      </View>
+
       {schedulesQuery.isLoading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>スケジュールを読み込み中...</Text>
         </View>
       ) : (
-        <SectionList
-          sections={sections}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <ScheduleCard schedule={item} onLongPress={() => openEditModal(item)} />
-          )}
-          renderSectionHeader={({ section }) => <Text style={styles.sectionTitle}>{section.title}</Text>}
-          contentContainerStyle={styles.listContent}
-          stickySectionHeadersEnabled={false}
-          onRefresh={handleRefresh}
-          refreshing={schedulesQuery.isRefetching || companiesQuery.isRefetching}
-          ItemSeparatorComponent={() => <View style={styles.listGap} />}
-          SectionSeparatorComponent={() => <View style={styles.sectionGap} />}
-          ListHeaderComponent={
-            <View style={styles.listHeader}>
-              <SectionHeader
-                title="予定管理"
-                subtitle="今日 / 今週 / それ以降で自動整理（カード長押しで編集）"
-              />
-            </View>
-          }
-          ListEmptyComponent={
-            !hasSchedules ? (
-              <AppCard>
-                <EmptyState
-                  title="スケジュールを追加してください"
-                  description="＋ボタンから面接や締切を登録できます。"
-                />
-              </AppCard>
-            ) : null
-          }
-        />
+        renderCurrentView()
       )}
 
       <View style={styles.fabWrap}>
-        <Pressable style={styles.fab} onPress={() => setIsCreateModalVisible(true)}>
+        <Pressable style={styles.fab} onPress={openCreateModal}>
           <Text style={styles.fabLabel}>＋</Text>
         </Pressable>
       </View>
@@ -490,12 +655,7 @@ export default function SchedulesScreen() {
         </View>
       </Modal>
 
-      <Modal
-        visible={isEditModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={closeEditModal}
-      >
+      <Modal visible={isEditModalVisible} transparent animationType="slide" onRequestClose={closeEditModal}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <SectionHeader title="スケジュールを編集" subtitle="内容を更新または削除できます" />
@@ -515,10 +675,7 @@ export default function SchedulesScreen() {
                           onPress={() => setEditCompanyId(company.id)}
                           disabled={isEditPending}
                         >
-                          <Text
-                            style={[styles.chipText, isSelected && styles.chipTextSelected]}
-                            numberOfLines={1}
-                          >
+                          <Text style={[styles.chipText, isSelected && styles.chipTextSelected]} numberOfLines={1}>
                             {company.name}
                           </Text>
                         </Pressable>
@@ -615,6 +772,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  screenHeader: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+    gap: spacing.sm,
+  },
   centered: {
     flex: 1,
     justifyContent: 'center',
@@ -628,12 +791,15 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
+    paddingTop: spacing.xs,
     paddingBottom: 112,
     flexGrow: 1,
   },
-  listHeader: {
-    marginBottom: 12,
+  viewContent: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: 112,
+    gap: spacing.md,
   },
   sectionTitle: {
     fontSize: 18,
