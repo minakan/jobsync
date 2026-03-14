@@ -16,7 +16,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { addHours, format, isThisWeek, isToday, isValid, parseISO } from 'date-fns';
 
 import { companyQueryKeys, fetchCompanies } from '../../api/companies';
-import { createSchedule, fetchSchedules, scheduleQueryKeys } from '../../api/schedules';
+import {
+  createSchedule,
+  deleteSchedule,
+  fetchSchedules,
+  scheduleQueryKeys,
+  updateSchedule,
+} from '../../api/schedules';
 import { ScheduleCard } from '../../components/schedule/ScheduleCard';
 import { type Company } from '../../types/company';
 import { type Schedule, type ScheduleType } from '../../types/schedule';
@@ -104,15 +110,34 @@ const getDefaultDateTimeInput = (): { date: string; time: string } => {
   };
 };
 
+const getDateTimeInputFromSchedule = (scheduledAt: string): { date: string; time: string } => {
+  const parsed = parseScheduleDate(scheduledAt);
+  if (!parsed) {
+    return getDefaultDateTimeInput();
+  }
+
+  return {
+    date: format(parsed, 'yyyy-MM-dd'),
+    time: format(parsed, 'HH:mm'),
+  };
+};
+
 export default function SchedulesScreen() {
   const queryClient = useQueryClient();
   const defaultDateTime = useMemo(() => getDefaultDateTimeInput(), []);
-  const [isModalVisible, setIsModalVisible] = useState(false);
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
-  const [selectedType, setSelectedType] = useState<ScheduleType>('interview');
-  const [title, setTitle] = useState('');
-  const [dateInput, setDateInput] = useState(defaultDateTime.date);
-  const [timeInput, setTimeInput] = useState(defaultDateTime.time);
+  const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
+  const [createCompanyId, setCreateCompanyId] = useState<string | null>(null);
+  const [createType, setCreateType] = useState<ScheduleType>('interview');
+  const [createTitle, setCreateTitle] = useState('');
+  const [createDateInput, setCreateDateInput] = useState(defaultDateTime.date);
+  const [createTimeInput, setCreateTimeInput] = useState(defaultDateTime.time);
+  const [editCompanyId, setEditCompanyId] = useState<string | null>(null);
+  const [editType, setEditType] = useState<ScheduleType>('interview');
+  const [editTitle, setEditTitle] = useState('');
+  const [editDateInput, setEditDateInput] = useState(defaultDateTime.date);
+  const [editTimeInput, setEditTimeInput] = useState(defaultDateTime.time);
 
   const schedulesQuery = useQuery({
     queryKey: scheduleQueryKeys.all,
@@ -129,14 +154,39 @@ export default function SchedulesScreen() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: scheduleQueryKeys.all });
       const nextDateTime = getDefaultDateTimeInput();
-      setSelectedType('interview');
-      setTitle('');
-      setDateInput(nextDateTime.date);
-      setTimeInput(nextDateTime.time);
-      setIsModalVisible(false);
+      setCreateType('interview');
+      setCreateTitle('');
+      setCreateDateInput(nextDateTime.date);
+      setCreateTimeInput(nextDateTime.time);
+      setIsCreateModalVisible(false);
     },
     onError: (error: unknown) => {
       Alert.alert('スケジュール追加エラー', getErrorMessage(error));
+    },
+  });
+
+  const updateScheduleMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Parameters<typeof updateSchedule>[1] }) =>
+      updateSchedule(id, payload),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: scheduleQueryKeys.all });
+      setSelectedSchedule(null);
+      setIsEditModalVisible(false);
+    },
+    onError: (error: unknown) => {
+      Alert.alert('スケジュール更新エラー', getErrorMessage(error));
+    },
+  });
+
+  const deleteScheduleMutation = useMutation({
+    mutationFn: deleteSchedule,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: scheduleQueryKeys.all });
+      setSelectedSchedule(null);
+      setIsEditModalVisible(false);
+    },
+    onError: (error: unknown) => {
+      Alert.alert('スケジュール削除エラー', getErrorMessage(error));
     },
   });
 
@@ -161,13 +211,13 @@ export default function SchedulesScreen() {
   }, [schedulesQuery.data]);
 
   useEffect(() => {
-    if (!selectedCompanyId && companies.length > 0) {
+    if (!createCompanyId && companies.length > 0) {
       const firstCompany = companies[0];
       if (firstCompany) {
-        setSelectedCompanyId(firstCompany.id);
+        setCreateCompanyId(firstCompany.id);
       }
     }
-  }, [companies, selectedCompanyId]);
+  }, [companies, createCompanyId]);
 
   const groupedSections = useMemo<ScheduleSection[]>(() => {
     return groupSchedules(schedules);
@@ -182,30 +232,94 @@ export default function SchedulesScreen() {
     await Promise.all([schedulesQuery.refetch(), companiesQuery.refetch()]);
   };
 
-  const handleSubmit = async (): Promise<void> => {
-    if (!selectedCompanyId) {
+  const handleCreateSchedule = async (): Promise<void> => {
+    if (!createCompanyId) {
       Alert.alert('入力エラー', '企業を選択してください');
       return;
     }
 
-    const trimmedTitle = title.trim();
+    const trimmedTitle = createTitle.trim();
     if (!trimmedTitle) {
       Alert.alert('入力エラー', 'タイトルを入力してください');
       return;
     }
 
-    const parsedDate = new Date(`${dateInput}T${timeInput}:00`);
+    const parsedDate = new Date(`${createDateInput}T${createTimeInput}:00`);
     if (!isValid(parsedDate)) {
       Alert.alert('入力エラー', '日時の形式が不正です');
       return;
     }
 
     await createScheduleMutation.mutateAsync({
-      companyId: selectedCompanyId,
-      type: selectedType,
+      companyId: createCompanyId,
+      type: createType,
       title: trimmedTitle,
       scheduledAt: parsedDate.toISOString(),
     });
+  };
+
+  const openEditModal = (schedule: Schedule): void => {
+    const nextDateTime = getDateTimeInputFromSchedule(schedule.scheduledAt);
+    setSelectedSchedule(schedule);
+    setEditCompanyId(schedule.companyId);
+    setEditType(schedule.type);
+    setEditTitle(schedule.title);
+    setEditDateInput(nextDateTime.date);
+    setEditTimeInput(nextDateTime.time);
+    setIsEditModalVisible(true);
+  };
+
+  const closeEditModal = (): void => {
+    setIsEditModalVisible(false);
+    setSelectedSchedule(null);
+  };
+
+  const handleUpdateSchedule = async (): Promise<void> => {
+    if (!selectedSchedule) {
+      return;
+    }
+
+    const trimmedTitle = editTitle.trim();
+    if (!trimmedTitle) {
+      Alert.alert('入力エラー', 'タイトルを入力してください');
+      return;
+    }
+
+    const parsedDate = new Date(`${editDateInput}T${editTimeInput}:00`);
+    if (!isValid(parsedDate)) {
+      Alert.alert('入力エラー', '日時の形式が不正です');
+      return;
+    }
+
+    await updateScheduleMutation.mutateAsync({
+      id: selectedSchedule.id,
+      payload: {
+        type: editType,
+        title: trimmedTitle,
+        scheduledAt: parsedDate.toISOString(),
+        ...(editCompanyId ? { companyId: editCompanyId } : {}),
+      },
+    });
+  };
+
+  const handleDeleteSchedule = (): void => {
+    if (!selectedSchedule || deleteScheduleMutation.isPending) {
+      return;
+    }
+
+    Alert.alert('スケジュール削除', 'この予定を削除しますか？', [
+      { text: 'キャンセル', style: 'cancel' },
+      {
+        text: '削除',
+        style: 'destructive',
+        onPress: () => {
+          if (!selectedSchedule) {
+            return;
+          }
+          deleteScheduleMutation.mutate(selectedSchedule.id);
+        },
+      },
+    ]);
   };
 
   return (
@@ -218,7 +332,9 @@ export default function SchedulesScreen() {
         <SectionList
           sections={sections}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <ScheduleCard schedule={item} />}
+          renderItem={({ item }) => (
+            <ScheduleCard schedule={item} onLongPress={() => openEditModal(item)} />
+          )}
           renderSectionHeader={({ section }) => (
             <Text style={styles.sectionTitle}>{section.title}</Text>
           )}
@@ -238,11 +354,16 @@ export default function SchedulesScreen() {
         />
       )}
 
-      <Pressable style={styles.fab} onPress={() => setIsModalVisible(true)}>
+      <Pressable style={styles.fab} onPress={() => setIsCreateModalVisible(true)}>
         <Text style={styles.fabLabel}>＋</Text>
       </Pressable>
 
-      <Modal visible={isModalVisible} transparent animationType="slide" onRequestClose={() => setIsModalVisible(false)}>
+      <Modal
+        visible={isCreateModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsCreateModalVisible(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>スケジュールを追加</Text>
@@ -254,12 +375,12 @@ export default function SchedulesScreen() {
               ) : (
                 <View style={styles.companyOptions}>
                   {companies.map((company) => {
-                    const isSelected = selectedCompanyId === company.id;
+                    const isSelected = createCompanyId === company.id;
                     return (
                       <Pressable
                         key={company.id}
                         style={[styles.companyOptionButton, isSelected && styles.companyOptionButtonSelected]}
-                        onPress={() => setSelectedCompanyId(company.id)}
+                        onPress={() => setCreateCompanyId(company.id)}
                       >
                         <Text
                           style={[styles.companyOptionText, isSelected && styles.companyOptionTextSelected]}
@@ -277,12 +398,12 @@ export default function SchedulesScreen() {
             <Text style={styles.fieldLabel}>種類</Text>
             <View style={styles.typeOptions}>
               {SCHEDULE_TYPES.map((type) => {
-                const isSelected = selectedType === type.value;
+                const isSelected = createType === type.value;
                 return (
                   <Pressable
                     key={type.value}
                     style={[styles.typeOptionButton, isSelected && styles.typeOptionButtonSelected]}
-                    onPress={() => setSelectedType(type.value)}
+                    onPress={() => setCreateType(type.value)}
                   >
                     <Text style={[styles.typeOptionText, isSelected && styles.typeOptionTextSelected]}>
                       {type.label}
@@ -294,8 +415,8 @@ export default function SchedulesScreen() {
 
             <Text style={styles.fieldLabel}>タイトル</Text>
             <TextInput
-              value={title}
-              onChangeText={setTitle}
+              value={createTitle}
+              onChangeText={setCreateTitle}
               placeholder="例: 一次面接"
               placeholderTextColor="#9CA3AF"
               style={styles.input}
@@ -304,15 +425,15 @@ export default function SchedulesScreen() {
             <Text style={styles.fieldLabel}>日時</Text>
             <View style={styles.dateTimeRow}>
               <TextInput
-                value={dateInput}
-                onChangeText={setDateInput}
+                value={createDateInput}
+                onChangeText={setCreateDateInput}
                 placeholder="YYYY-MM-DD"
                 placeholderTextColor="#9CA3AF"
                 style={[styles.input, styles.dateInput]}
               />
               <TextInput
-                value={timeInput}
-                onChangeText={setTimeInput}
+                value={createTimeInput}
+                onChangeText={setCreateTimeInput}
                 placeholder="HH:mm"
                 placeholderTextColor="#9CA3AF"
                 style={[styles.input, styles.timeInput]}
@@ -320,7 +441,10 @@ export default function SchedulesScreen() {
             </View>
 
             <View style={styles.modalActions}>
-              <Pressable style={[styles.actionButton, styles.cancelButton]} onPress={() => setIsModalVisible(false)}>
+              <Pressable
+                style={[styles.actionButton, styles.cancelButton]}
+                onPress={() => setIsCreateModalVisible(false)}
+              >
                 <Text style={styles.cancelButtonText}>キャンセル</Text>
               </Pressable>
               <Pressable
@@ -329,7 +453,7 @@ export default function SchedulesScreen() {
                   styles.submitButton,
                   (createScheduleMutation.isPending || companies.length === 0) && styles.buttonDisabled,
                 ]}
-                onPress={handleSubmit}
+                onPress={handleCreateSchedule}
                 disabled={createScheduleMutation.isPending || companies.length === 0}
               >
                 {createScheduleMutation.isPending ? (
