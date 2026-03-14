@@ -1,10 +1,11 @@
 import { differenceInHours, format, isValid, parseISO } from 'date-fns';
 import { ja } from 'date-fns/locale';
-import { Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CountdownTimer } from './CountdownTimer';
 
 import { type Schedule, type ScheduleType } from '../../types/schedule';
+import { colors, radius } from '@/theme/tokens';
 
 interface ScheduleCardProps {
   schedule: Schedule;
@@ -12,16 +13,14 @@ interface ScheduleCardProps {
   onLongPress?: () => void;
 }
 
-const TYPE_STYLES: Record<ScheduleType, { label: string; color: string }> = {
-  es_deadline: { label: 'ES締切', color: '#EF4444' },
-  interview: { label: '面接', color: '#4F46E5' },
-  exam: { label: '試験', color: '#F97316' },
-  event: { label: 'イベント', color: '#10B981' },
+const TYPE_STYLES: Record<ScheduleType, { label: string; color: string; soft: string }> = {
+  es_deadline: { label: 'ES締切', color: '#DC2626', soft: '#FEE2E2' },
+  interview: { label: '面接', color: '#1D4ED8', soft: '#DBEAFE' },
+  exam: { label: '試験', color: '#C2410C', soft: '#FFEDD5' },
+  event: { label: 'イベント', color: '#15803D', soft: '#DCFCE7' },
 };
 
 export const ScheduleCard = ({ schedule, showCountdown = true, onLongPress }: ScheduleCardProps) => {
-  const colorScheme = useColorScheme();
-  const isDarkMode = colorScheme === 'dark';
   const typeStyle = TYPE_STYLES[schedule.type];
 
   const scheduledDate = parseISO(schedule.scheduledAt);
@@ -31,46 +30,42 @@ export const ScheduleCard = ({ schedule, showCountdown = true, onLongPress }: Sc
 
   return (
     <Pressable onLongPress={onLongPress} delayLongPress={280}>
-      <View
-        style={[
-          styles.card,
-          {
-            borderLeftColor: typeStyle.color,
-            backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
-            borderColor: isDarkMode ? '#374151' : '#E5E7EB',
-          },
-        ]}
-      >
-        <View style={styles.row}>
-          <Text style={[styles.companyName, { color: isDarkMode ? '#F9FAFB' : '#111827' }]}>
-            {schedule.companyName}
-          </Text>
-          <View style={[styles.typeBadge, { backgroundColor: `${typeStyle.color}1A` }]}>
-            <Text style={[styles.typeLabel, { color: typeStyle.color }]}>{typeStyle.label}</Text>
+      {({ pressed }) => (
+        <View style={[styles.card, { borderLeftColor: typeStyle.color }, pressed && styles.pressed]}>
+          <View style={styles.row}>
+            <Text style={styles.companyName} numberOfLines={1}>
+              {schedule.companyName}
+            </Text>
+            <View style={[styles.typeBadge, { backgroundColor: typeStyle.soft }]}> 
+              <Text style={[styles.typeLabel, { color: typeStyle.color }]}>{typeStyle.label}</Text>
+            </View>
           </View>
+
+          <Text style={styles.title}>{schedule.title}</Text>
+
+          <Text style={styles.dateLabel}>
+            {isDateValid ? format(scheduledDate, 'M月d日(E) HH:mm', { locale: ja }) : '日時が不正です'}
+          </Text>
+
+          {shouldShowCountdown ? <CountdownTimer scheduledAt={schedule.scheduledAt} /> : null}
         </View>
-
-        <Text style={[styles.title, { color: isDarkMode ? '#E5E7EB' : '#374151' }]}>{schedule.title}</Text>
-
-        <Text style={[styles.dateLabel, { color: isDarkMode ? '#9CA3AF' : '#6B7280' }]}>
-          {isDateValid
-            ? format(scheduledDate, 'M月d日(E) HH:mm', { locale: ja })
-            : '日時が不正です'}
-        </Text>
-
-        {shouldShowCountdown ? <CountdownTimer scheduledAt={schedule.scheduledAt} /> : null}
-      </View>
+      )}
     </Pressable>
   );
 };
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 12,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderLeftWidth: 4,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     padding: 14,
     gap: 8,
+  },
+  pressed: {
+    opacity: 0.88,
   },
   row: {
     flexDirection: 'row',
@@ -81,10 +76,11 @@ const styles = StyleSheet.create({
   companyName: {
     fontSize: 16,
     fontWeight: '700',
+    color: colors.text,
     flex: 1,
   },
   typeBadge: {
-    borderRadius: 999,
+    borderRadius: radius.round,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
@@ -94,10 +90,12 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
+    color: colors.subtext,
   },
   dateLabel: {
     fontSize: 13,
     fontWeight: '500',
+    color: colors.muted,
   },
 });

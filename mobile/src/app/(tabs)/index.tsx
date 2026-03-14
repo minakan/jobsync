@@ -1,35 +1,36 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
   FlatList,
-  Pressable,
   RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
-  useColorScheme,
   View,
 } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { format, isValid, parseISO } from 'date-fns';
 import { ja } from 'date-fns/locale';
 
-import { STATUS_CONFIG } from '../../components/company/StatusBadge';
-import { ScheduleCard } from '../../components/schedule/ScheduleCard';
-import { CountdownTimer } from '../../components/schedule/CountdownTimer';
-import { useHomeData } from '../../hooks/useHomeData';
-import { useAuthStore } from '../../stores/authStore';
-import { CompanyStatus } from '../../types/company';
+import { AppButton } from '@/components/ui/AppButton';
+import { AppCard } from '@/components/ui/AppCard';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { SectionHeader } from '@/components/ui/SectionHeader';
+import { STATUS_CONFIG } from '@/components/company/StatusBadge';
+import { ScheduleCard } from '@/components/schedule/ScheduleCard';
+import { CountdownTimer } from '@/components/schedule/CountdownTimer';
+import { useHomeData } from '@/hooks/useHomeData';
+import { useAuthStore } from '@/stores/authStore';
+import { CompanyStatus } from '@/types/company';
+import { colors, radius, shadow, spacing, typography } from '@/theme/tokens';
 
-const SkeletonLoader = ({ isDarkMode }: { isDarkMode: boolean }) => {
-  const lineColor = isDarkMode ? '#374151' : '#E5E7EB';
-
+const SkeletonLoader = () => {
   return (
     <View style={styles.skeletonContainer}>
-      <View style={[styles.skeletonLineLarge, { backgroundColor: lineColor }]} />
-      <View style={[styles.skeletonLineMedium, { backgroundColor: lineColor }]} />
-      <View style={[styles.skeletonCard, { backgroundColor: lineColor }]} />
-      <View style={[styles.skeletonCard, { backgroundColor: lineColor }]} />
+      <View style={[styles.skeletonLineLarge, { backgroundColor: colors.skeleton }]} />
+      <View style={[styles.skeletonLineMedium, { backgroundColor: colors.skeleton }]} />
+      <View style={[styles.skeletonCard, { backgroundColor: colors.skeleton }]} />
+      <View style={[styles.skeletonCard, { backgroundColor: colors.skeleton }]} />
     </View>
   );
 };
@@ -43,9 +44,7 @@ const statusLabelFor = (status: string): string => {
 };
 
 export default function HomeScreen() {
-  const colorScheme = useColorScheme();
-  const isDarkMode = colorScheme === 'dark';
-  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const user = useAuthStore((state) => state.user);
   const {
@@ -61,7 +60,6 @@ export default function HomeScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-
     try {
       await refreshHomeData();
     } finally {
@@ -77,40 +75,36 @@ export default function HomeScreen() {
     return Object.entries(companySummary).sort((left, right) => right[1] - left[1]);
   }, [companySummary]);
 
+  const displayName = user?.name ?? '';
+
   return (
-    <SafeAreaView
-      style={[
-        styles.safeArea,
-        { backgroundColor: isDarkMode ? '#030712' : '#F9FAFB' },
-      ]}
-    >
+    <SafeAreaView style={styles.safeArea}>
       <ScrollView
         contentContainerStyle={styles.container}
         refreshControl={
           <RefreshControl
             refreshing={refreshing || isRefreshing}
             onRefresh={onRefresh}
-            tintColor={isDarkMode ? '#F9FAFB' : '#111827'}
+            tintColor={colors.primary}
           />
         }
       >
-        <Animated.View entering={FadeIn.duration(400)} style={styles.header}>
-          <Text style={[styles.greeting, { color: isDarkMode ? '#F9FAFB' : '#111827' }]}>
-            おはよう{user?.name ? ` ${user.name}` : ''}
-          </Text>
-          <Text style={[styles.todayText, { color: isDarkMode ? '#9CA3AF' : '#6B7280' }]}>
-            {todayLabel}
-          </Text>
+        <Animated.View entering={FadeIn.duration(320)} style={styles.headerArea}>
+          <Text style={styles.greeting}>おかえりなさい{displayName ? `、${displayName}` : ''}</Text>
+          <Text style={styles.todayText}>{todayLabel}</Text>
+
+          <AppCard style={styles.heroCard}>
+            <Text style={styles.heroTitle}>今日の進捗をすぐ確認</Text>
+            <Text style={styles.heroCaption}>予定、締切、選考状況をこの画面でまとめて把握できます。</Text>
+          </AppCard>
         </Animated.View>
 
         {isLoading ? (
-          <SkeletonLoader isDarkMode={isDarkMode} />
+          <SkeletonLoader />
         ) : (
           <>
-            <Animated.View entering={FadeIn.duration(500)} style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: isDarkMode ? '#F9FAFB' : '#111827' }]}>
-                今日の予定
-              </Text>
+            <Animated.View entering={FadeIn.duration(420)} style={styles.sectionBlock}>
+              <SectionHeader title="今日の予定" subtitle="本日予定されているイベント" />
               <FlatList
                 data={todaySchedules}
                 keyExtractor={(item) => item.id}
@@ -118,17 +112,16 @@ export default function HomeScreen() {
                 ItemSeparatorComponent={() => <View style={styles.listGap} />}
                 scrollEnabled={false}
                 ListEmptyComponent={
-                  <Text style={[styles.emptyText, { color: isDarkMode ? '#9CA3AF' : '#6B7280' }]}>
-                    今日の予定はありません
-                  </Text>
+                  <AppCard>
+                    <EmptyState title="今日の予定はありません" description="予定を追加するとここに表示されます。" />
+                  </AppCard>
                 }
               />
             </Animated.View>
 
-            <Animated.View entering={FadeIn.duration(600)} style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: isDarkMode ? '#F9FAFB' : '#111827' }]}>
-                直近の締切
-              </Text>
+            <Animated.View entering={FadeIn.duration(500)} style={styles.sectionBlock}>
+              <SectionHeader title="直近の締切" subtitle="72時間以内のES締切" />
+
               <FlatList
                 data={upcomingDeadlines}
                 keyExtractor={(item) => item.id}
@@ -136,94 +129,69 @@ export default function HomeScreen() {
                   const deadline = parseISO(item.scheduledAt);
 
                   return (
-                    <View
-                      style={[
-                        styles.deadlineCard,
-                        {
-                          backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
-                          borderColor: isDarkMode ? '#374151' : '#E5E7EB',
-                        },
-                      ]}
-                    >
+                    <AppCard>
                       <View style={styles.deadlineHeader}>
-                        <Text
-                          style={[styles.deadlineCompany, { color: isDarkMode ? '#F9FAFB' : '#111827' }]}
-                          numberOfLines={1}
-                        >
+                        <Text style={styles.deadlineCompany} numberOfLines={1}>
                           {item.companyName}
                         </Text>
                         <CountdownTimer scheduledAt={item.scheduledAt} />
                       </View>
-                      <Text style={[styles.deadlineTitle, { color: isDarkMode ? '#D1D5DB' : '#374151' }]}>
-                        {item.title}
-                      </Text>
-                      <Text style={[styles.deadlineDate, { color: isDarkMode ? '#9CA3AF' : '#6B7280' }]}>
+                      <Text style={styles.deadlineTitle}>{item.title}</Text>
+                      <Text style={styles.deadlineDate}>
                         {isValid(deadline)
                           ? format(deadline, 'M月d日(E) HH:mm', { locale: ja })
                           : '日時が不正です'}
                       </Text>
-                    </View>
+                    </AppCard>
                   );
                 }}
                 ItemSeparatorComponent={() => <View style={styles.listGap} />}
                 scrollEnabled={false}
                 ListEmptyComponent={
-                  <Text style={[styles.emptyText, { color: isDarkMode ? '#9CA3AF' : '#6B7280' }]}>
-                    3日以内の締切はありません
-                  </Text>
+                  <AppCard>
+                    <EmptyState
+                      title="3日以内の締切はありません"
+                      description="余裕のある今のうちに次の選考を確認しましょう。"
+                    />
+                  </AppCard>
                 }
               />
             </Animated.View>
 
-            <Animated.View entering={FadeIn.duration(700)} style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: isDarkMode ? '#F9FAFB' : '#111827' }]}>
-                選考中の企業サマリー
-              </Text>
+            <Animated.View entering={FadeIn.duration(580)} style={styles.sectionBlock}>
+              <SectionHeader title="選考中の企業サマリー" subtitle="ステータスごとの件数" />
               {summaryEntries.length > 0 ? (
                 <View style={styles.summaryGrid}>
                   {summaryEntries.map(([status, count]) => (
-                    <View
-                      key={status}
-                      style={[
-                        styles.summaryCard,
-                        {
-                          backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
-                          borderColor: isDarkMode ? '#374151' : '#E5E7EB',
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.summaryCount, { color: isDarkMode ? '#F9FAFB' : '#111827' }]}>
-                        {count}
-                      </Text>
-                      <Text style={[styles.summaryLabel, { color: isDarkMode ? '#9CA3AF' : '#6B7280' }]}>
-                        {statusLabelFor(status)}
-                      </Text>
-                    </View>
+                    <AppCard key={status} style={styles.summaryCard}>
+                      <Text style={styles.summaryCount}>{count}</Text>
+                      <Text style={styles.summaryLabel}>{statusLabelFor(status)}</Text>
+                    </AppCard>
                   ))}
                 </View>
               ) : (
-                <Text style={[styles.emptyText, { color: isDarkMode ? '#9CA3AF' : '#6B7280' }]}>
-                  集計できる企業データがありません
-                </Text>
+                <AppCard>
+                  <EmptyState
+                    title="集計できる企業データがありません"
+                    description="企業を追加するとステータス集計が表示されます。"
+                  />
+                </AppCard>
               )}
             </Animated.View>
           </>
         )}
       </ScrollView>
 
-      <Pressable
-        style={[
-          styles.fab,
-          {
-            backgroundColor: isSyncing ? '#9CA3AF' : '#2563EB',
-            shadowColor: isDarkMode ? '#000000' : '#1F2937',
-          },
-        ]}
-        onPress={triggerSync}
-        disabled={isSyncing}
-      >
-        <Text style={styles.fabLabel}>{isSyncing ? '同期中...' : 'メールを同期'}</Text>
-      </Pressable>
+      <View style={styles.fabWrap}>
+        <AppButton
+          label={isSyncing ? '同期中...' : 'メールを同期'}
+          onPress={() => {
+            void triggerSync();
+          }}
+          loading={isSyncing}
+          style={styles.fabButton}
+        />
+      </View>
     </SafeAreaView>
   );
 }
@@ -231,41 +199,49 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
+    backgroundColor: colors.background,
   },
   container: {
-    padding: 16,
-    paddingBottom: 120,
-    gap: 20,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: 124,
+    gap: 22,
   },
-  header: {
-    gap: 4,
+  headerArea: {
+    gap: 8,
   },
   greeting: {
-    fontSize: 28,
+    color: colors.text,
+    fontSize: typography.heading,
     fontWeight: '800',
+    letterSpacing: 0.2,
   },
   todayText: {
+    color: colors.muted,
     fontSize: 14,
+    fontWeight: '600',
+  },
+  heroCard: {
+    marginTop: 6,
+    backgroundColor: '#EFF6FF',
+    borderColor: colors.primaryBorder,
+  },
+  heroTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  heroCaption: {
+    color: colors.subtext,
+    fontSize: 13,
     fontWeight: '500',
+    lineHeight: 19,
   },
-  section: {
+  sectionBlock: {
     gap: 10,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  emptyText: {
-    fontSize: 14,
   },
   listGap: {
     height: 10,
-  },
-  deadlineCard: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    gap: 8,
   },
   deadlineHeader: {
     flexDirection: 'row',
@@ -275,14 +251,17 @@ const styles = StyleSheet.create({
   },
   deadlineCompany: {
     flex: 1,
+    color: colors.text,
     fontSize: 15,
     fontWeight: '700',
   },
   deadlineTitle: {
+    color: colors.subtext,
     fontSize: 14,
     fontWeight: '600',
   },
   deadlineDate: {
+    color: colors.muted,
     fontSize: 13,
     fontWeight: '500',
   },
@@ -293,53 +272,45 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     width: '48%',
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
     gap: 4,
   },
   summaryCount: {
+    color: colors.text,
     fontSize: 24,
     fontWeight: '800',
   },
   summaryLabel: {
+    color: colors.subtext,
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
   },
-  fab: {
+  fabWrap: {
     position: 'absolute',
     right: 16,
-    bottom: 24,
-    borderRadius: 999,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
+    bottom: 22,
   },
-  fabLabel: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
+  fabButton: {
+    minHeight: 48,
+    paddingHorizontal: 20,
+    borderRadius: radius.round,
+    ...shadow.floating,
   },
   skeletonContainer: {
     gap: 12,
   },
   skeletonLineLarge: {
-    width: '60%',
-    height: 28,
-    borderRadius: 8,
+    width: '62%',
+    height: 30,
+    borderRadius: 9,
   },
   skeletonLineMedium: {
-    width: '40%',
+    width: '45%',
     height: 14,
     borderRadius: 7,
   },
   skeletonCard: {
     width: '100%',
     height: 92,
-    borderRadius: 12,
+    borderRadius: radius.md,
   },
 });

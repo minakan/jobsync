@@ -2,14 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { differenceInDays, differenceInHours, isSameDay, isValid, parseISO } from 'date-fns';
 import { StyleSheet, Text } from 'react-native';
 
+import { colors } from '@/theme/tokens';
+
 interface CountdownTimerProps {
   scheduledAt: string;
 }
 
-const COLORS = {
-  normal: '#10B981',
-  warning: '#F59E0B',
-  urgent: '#EF4444',
+const toneColors = {
+  normal: colors.success,
+  warning: colors.warning,
+  urgent: colors.danger,
 };
 
 export const CountdownTimer = ({ scheduledAt }: CountdownTimerProps) => {
@@ -29,13 +31,13 @@ export const CountdownTimer = ({ scheduledAt }: CountdownTimerProps) => {
     const targetDate = parseISO(scheduledAt);
 
     if (!isValid(targetDate)) {
-      return { text: '日時不明', color: COLORS.urgent };
+      return { text: '日時不明', color: toneColors.urgent };
     }
 
     const totalHours = differenceInHours(targetDate, now);
 
     if (totalHours < 0) {
-      return { text: '期限切れ', color: COLORS.urgent };
+      return { text: '期限切れ', color: toneColors.urgent };
     }
 
     const days = differenceInDays(targetDate, now);
@@ -43,7 +45,7 @@ export const CountdownTimer = ({ scheduledAt }: CountdownTimerProps) => {
     if (isSameDay(targetDate, now)) {
       return {
         text: `残り${Math.max(totalHours, 0)}時間`,
-        color: COLORS.urgent,
+        color: toneColors.urgent,
       };
     }
 
@@ -51,13 +53,13 @@ export const CountdownTimer = ({ scheduledAt }: CountdownTimerProps) => {
       const remainderHours = Math.max(totalHours - days * 24, 0);
       return {
         text: `残り${days}日${remainderHours}時間`,
-        color: COLORS.warning,
+        color: toneColors.warning,
       };
     }
 
     return {
       text: `残り${days}日`,
-      color: COLORS.normal,
+      color: toneColors.normal,
     };
   }, [now, scheduledAt]);
 

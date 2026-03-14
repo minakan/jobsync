@@ -24,8 +24,13 @@ import {
   updateSchedule,
 } from '../../api/schedules';
 import { ScheduleCard } from '../../components/schedule/ScheduleCard';
+import { AppButton } from '@/components/ui/AppButton';
+import { AppCard } from '@/components/ui/AppCard';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { SectionHeader } from '@/components/ui/SectionHeader';
 import { type Company } from '../../types/company';
 import { type Schedule, type ScheduleType } from '../../types/schedule';
+import { colors, radius, shadow, spacing } from '@/theme/tokens';
 
 interface ScheduleSection {
   title: string;
@@ -43,6 +48,7 @@ const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error && error.message.length > 0) {
     return error.message;
   }
+
   return '通信に失敗しました。時間をおいて再試行してください。';
 };
 
@@ -51,6 +57,7 @@ const parseScheduleDate = (value: string): Date | null => {
   if (!isValid(parsed)) {
     return null;
   }
+
   return parsed;
 };
 
@@ -61,12 +68,15 @@ const sortByScheduledAt = (left: Schedule, right: Schedule): number => {
   if (!leftDate && !rightDate) {
     return 0;
   }
+
   if (!leftDate) {
     return 1;
   }
+
   if (!rightDate) {
     return -1;
   }
+
   return leftDate.getTime() - rightDate.getTime();
 };
 
@@ -77,6 +87,7 @@ const groupSchedules = (schedules: Schedule[]): ScheduleSection[] => {
 
   for (const schedule of schedules) {
     const scheduleDate = parseScheduleDate(schedule.scheduledAt);
+
     if (!scheduleDate) {
       later.push(schedule);
       continue;
@@ -104,6 +115,7 @@ const groupSchedules = (schedules: Schedule[]): ScheduleSection[] => {
 
 const getDefaultDateTimeInput = (): { date: string; time: string } => {
   const base = addHours(new Date(), 1);
+
   return {
     date: format(base, 'yyyy-MM-dd'),
     time: format(base, 'HH:mm'),
@@ -125,14 +137,17 @@ const getDateTimeInputFromSchedule = (scheduledAt: string): { date: string; time
 export default function SchedulesScreen() {
   const queryClient = useQueryClient();
   const defaultDateTime = useMemo(() => getDefaultDateTimeInput(), []);
+
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
+
   const [createCompanyId, setCreateCompanyId] = useState<string | null>(null);
   const [createType, setCreateType] = useState<ScheduleType>('interview');
   const [createTitle, setCreateTitle] = useState('');
   const [createDateInput, setCreateDateInput] = useState(defaultDateTime.date);
   const [createTimeInput, setCreateTimeInput] = useState(defaultDateTime.time);
+
   const [editCompanyId, setEditCompanyId] = useState<string | null>(null);
   const [editType, setEditType] = useState<ScheduleType>('interview');
   const [editTitle, setEditTitle] = useState('');
@@ -224,9 +239,9 @@ export default function SchedulesScreen() {
   }, [schedules]);
 
   const hasSchedules = groupedSections.some((section) => section.data.length > 0);
-  const sections = hasSchedules
-    ? groupedSections.filter((section) => section.data.length > 0)
-    : [];
+  const sections = hasSchedules ? groupedSections.filter((section) => section.data.length > 0) : [];
+
+  const isEditPending = updateScheduleMutation.isPending || deleteScheduleMutation.isPending;
 
   const handleRefresh = async (): Promise<void> => {
     await Promise.all([schedulesQuery.refetch(), companiesQuery.refetch()]);
@@ -260,6 +275,7 @@ export default function SchedulesScreen() {
 
   const openEditModal = (schedule: Schedule): void => {
     const nextDateTime = getDateTimeInputFromSchedule(schedule.scheduledAt);
+
     setSelectedSchedule(schedule);
     setEditCompanyId(schedule.companyId);
     setEditType(schedule.type);
@@ -270,6 +286,10 @@ export default function SchedulesScreen() {
   };
 
   const closeEditModal = (): void => {
+    if (isEditPending) {
+      return;
+    }
+
     setIsEditModalVisible(false);
     setSelectedSchedule(null);
   };
@@ -316,6 +336,7 @@ export default function SchedulesScreen() {
           if (!selectedSchedule) {
             return;
           }
+
           deleteScheduleMutation.mutate(selectedSchedule.id);
         },
       },
@@ -326,7 +347,8 @@ export default function SchedulesScreen() {
     <SafeAreaView style={styles.safeArea}>
       {schedulesQuery.isLoading ? (
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#2563EB" />
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>スケジュールを読み込み中...</Text>
         </View>
       ) : (
         <SectionList
@@ -335,28 +357,39 @@ export default function SchedulesScreen() {
           renderItem={({ item }) => (
             <ScheduleCard schedule={item} onLongPress={() => openEditModal(item)} />
           )}
-          renderSectionHeader={({ section }) => (
-            <Text style={styles.sectionTitle}>{section.title}</Text>
-          )}
+          renderSectionHeader={({ section }) => <Text style={styles.sectionTitle}>{section.title}</Text>}
           contentContainerStyle={styles.listContent}
           stickySectionHeadersEnabled={false}
           onRefresh={handleRefresh}
           refreshing={schedulesQuery.isRefetching || companiesQuery.isRefetching}
           ItemSeparatorComponent={() => <View style={styles.listGap} />}
           SectionSeparatorComponent={() => <View style={styles.sectionGap} />}
+          ListHeaderComponent={
+            <View style={styles.listHeader}>
+              <SectionHeader
+                title="予定管理"
+                subtitle="今日 / 今週 / それ以降で自動整理（カード長押しで編集）"
+              />
+            </View>
+          }
           ListEmptyComponent={
             !hasSchedules ? (
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>スケジュールを追加してください</Text>
-              </View>
+              <AppCard>
+                <EmptyState
+                  title="スケジュールを追加してください"
+                  description="＋ボタンから面接や締切を登録できます。"
+                />
+              </AppCard>
             ) : null
           }
         />
       )}
 
-      <Pressable style={styles.fab} onPress={() => setIsCreateModalVisible(true)}>
-        <Text style={styles.fabLabel}>＋</Text>
-      </Pressable>
+      <View style={styles.fabWrap}>
+        <Pressable style={styles.fab} onPress={() => setIsCreateModalVisible(true)}>
+          <Text style={styles.fabLabel}>＋</Text>
+        </Pressable>
+      </View>
 
       <Modal
         visible={isCreateModalVisible}
@@ -366,7 +399,7 @@ export default function SchedulesScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>スケジュールを追加</Text>
+            <SectionHeader title="スケジュールを追加" subtitle="企業・種類・日時・タイトルを入力" />
 
             <Text style={styles.fieldLabel}>企業</Text>
             <ScrollView style={styles.companyScrollArea}>
@@ -379,13 +412,10 @@ export default function SchedulesScreen() {
                     return (
                       <Pressable
                         key={company.id}
-                        style={[styles.companyOptionButton, isSelected && styles.companyOptionButtonSelected]}
+                        style={[styles.chip, isSelected && styles.chipSelected]}
                         onPress={() => setCreateCompanyId(company.id)}
                       >
-                        <Text
-                          style={[styles.companyOptionText, isSelected && styles.companyOptionTextSelected]}
-                          numberOfLines={1}
-                        >
+                        <Text style={[styles.chipText, isSelected && styles.chipTextSelected]} numberOfLines={1}>
                           {company.name}
                         </Text>
                       </Pressable>
@@ -399,15 +429,14 @@ export default function SchedulesScreen() {
             <View style={styles.typeOptions}>
               {SCHEDULE_TYPES.map((type) => {
                 const isSelected = createType === type.value;
+
                 return (
                   <Pressable
                     key={type.value}
-                    style={[styles.typeOptionButton, isSelected && styles.typeOptionButtonSelected]}
+                    style={[styles.chip, isSelected && styles.chipSelected]}
                     onPress={() => setCreateType(type.value)}
                   >
-                    <Text style={[styles.typeOptionText, isSelected && styles.typeOptionTextSelected]}>
-                      {type.label}
-                    </Text>
+                    <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>{type.label}</Text>
                   </Pressable>
                 );
               })}
@@ -418,7 +447,7 @@ export default function SchedulesScreen() {
               value={createTitle}
               onChangeText={setCreateTitle}
               placeholder="例: 一次面接"
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor={colors.muted}
               style={styles.input}
             />
 
@@ -428,41 +457,152 @@ export default function SchedulesScreen() {
                 value={createDateInput}
                 onChangeText={setCreateDateInput}
                 placeholder="YYYY-MM-DD"
-                placeholderTextColor="#9CA3AF"
+                placeholderTextColor={colors.muted}
                 style={[styles.input, styles.dateInput]}
               />
               <TextInput
                 value={createTimeInput}
                 onChangeText={setCreateTimeInput}
                 placeholder="HH:mm"
-                placeholderTextColor="#9CA3AF"
+                placeholderTextColor={colors.muted}
                 style={[styles.input, styles.timeInput]}
               />
             </View>
 
             <View style={styles.modalActions}>
-              <Pressable
-                style={[styles.actionButton, styles.cancelButton]}
+              <AppButton
+                label="キャンセル"
+                variant="secondary"
                 onPress={() => setIsCreateModalVisible(false)}
-              >
-                <Text style={styles.cancelButtonText}>キャンセル</Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.actionButton,
-                  styles.submitButton,
-                  (createScheduleMutation.isPending || companies.length === 0) && styles.buttonDisabled,
-                ]}
-                onPress={handleCreateSchedule}
-                disabled={createScheduleMutation.isPending || companies.length === 0}
-              >
-                {createScheduleMutation.isPending ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.submitButtonText}>追加</Text>
-                )}
-              </Pressable>
+                style={styles.flexButton}
+              />
+              <AppButton
+                label="追加"
+                onPress={() => {
+                  void handleCreateSchedule();
+                }}
+                loading={createScheduleMutation.isPending}
+                disabled={companies.length === 0}
+                style={styles.flexButton}
+              />
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={isEditModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={closeEditModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <SectionHeader title="スケジュールを編集" subtitle="内容を更新または削除できます" />
+
+            {selectedSchedule ? (
+              <ScrollView contentContainerStyle={styles.detailContent}>
+                <Text style={styles.fieldLabel}>企業</Text>
+                <ScrollView style={styles.companyScrollArea}>
+                  <View style={styles.companyOptions}>
+                    {companies.map((company) => {
+                      const isSelected = editCompanyId === company.id;
+
+                      return (
+                        <Pressable
+                          key={company.id}
+                          style={[styles.chip, isSelected && styles.chipSelected]}
+                          onPress={() => setEditCompanyId(company.id)}
+                          disabled={isEditPending}
+                        >
+                          <Text
+                            style={[styles.chipText, isSelected && styles.chipTextSelected]}
+                            numberOfLines={1}
+                          >
+                            {company.name}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+
+                <Text style={styles.fieldLabel}>種類</Text>
+                <View style={styles.typeOptions}>
+                  {SCHEDULE_TYPES.map((type) => {
+                    const isSelected = editType === type.value;
+
+                    return (
+                      <Pressable
+                        key={type.value}
+                        style={[styles.chip, isSelected && styles.chipSelected]}
+                        onPress={() => setEditType(type.value)}
+                        disabled={isEditPending}
+                      >
+                        <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>{type.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.fieldLabel}>タイトル</Text>
+                <TextInput
+                  value={editTitle}
+                  onChangeText={setEditTitle}
+                  placeholder="例: 一次面接"
+                  placeholderTextColor={colors.muted}
+                  style={styles.input}
+                  editable={!isEditPending}
+                />
+
+                <Text style={styles.fieldLabel}>日時</Text>
+                <View style={styles.dateTimeRow}>
+                  <TextInput
+                    value={editDateInput}
+                    onChangeText={setEditDateInput}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={colors.muted}
+                    style={[styles.input, styles.dateInput]}
+                    editable={!isEditPending}
+                  />
+                  <TextInput
+                    value={editTimeInput}
+                    onChangeText={setEditTimeInput}
+                    placeholder="HH:mm"
+                    placeholderTextColor={colors.muted}
+                    style={[styles.input, styles.timeInput]}
+                    editable={!isEditPending}
+                  />
+                </View>
+
+                <View style={styles.modalActions}>
+                  <AppButton
+                    label="閉じる"
+                    variant="secondary"
+                    onPress={closeEditModal}
+                    disabled={isEditPending}
+                    style={styles.flexButton}
+                  />
+                  <AppButton
+                    label="保存"
+                    onPress={() => {
+                      void handleUpdateSchedule();
+                    }}
+                    loading={updateScheduleMutation.isPending}
+                    disabled={isEditPending}
+                    style={styles.flexButton}
+                  />
+                </View>
+
+                <AppButton
+                  label="スケジュールを削除"
+                  variant="danger"
+                  onPress={handleDeleteSchedule}
+                  loading={deleteScheduleMutation.isPending}
+                  disabled={isEditPending}
+                />
+              </ScrollView>
+            ) : null}
           </View>
         </View>
       </Modal>
@@ -473,23 +613,32 @@ export default function SchedulesScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: colors.background,
   },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 10,
+  },
+  loadingText: {
+    color: colors.subtext,
+    fontSize: 14,
+    fontWeight: '600',
   },
   listContent: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
     paddingBottom: 112,
     flexGrow: 1,
+  },
+  listHeader: {
+    marginBottom: 12,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#111827',
+    color: colors.text,
     marginBottom: 10,
   },
   listGap: {
@@ -498,124 +647,91 @@ const styles = StyleSheet.create({
   sectionGap: {
     height: 18,
   },
-  emptyContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 120,
-  },
-  emptyText: {
-    color: '#6B7280',
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  fab: {
+  fabWrap: {
     position: 'absolute',
     right: 16,
     bottom: 24,
+  },
+  fab: {
     width: 56,
     height: 56,
-    borderRadius: 999,
+    borderRadius: radius.round,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2563EB',
-    shadowColor: '#1F2937',
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
+    backgroundColor: colors.primary,
+    ...shadow.floating,
   },
   fabLabel: {
     color: '#FFFFFF',
-    fontSize: 28,
+    fontSize: 30,
     lineHeight: 30,
     fontWeight: '500',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: '#00000066',
+    backgroundColor: colors.overlay,
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
     paddingHorizontal: 20,
     paddingTop: 20,
     paddingBottom: 30,
     gap: 12,
     maxHeight: '90%',
+    borderTopWidth: 1,
+    borderColor: colors.border,
   },
-  modalTitle: {
-    color: '#111827',
-    fontSize: 20,
-    fontWeight: '800',
-    marginBottom: 4,
+  detailContent: {
+    gap: 12,
+    paddingBottom: 8,
   },
   fieldLabel: {
-    color: '#374151',
+    color: colors.subtext,
     fontSize: 14,
     fontWeight: '700',
   },
   companyScrollArea: {
-    maxHeight: 140,
+    maxHeight: 150,
   },
   companyOptions: {
     gap: 8,
-  },
-  companyOptionButton: {
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: '#FFFFFF',
-  },
-  companyOptionButtonSelected: {
-    borderColor: '#2563EB',
-    backgroundColor: '#DBEAFE',
-  },
-  companyOptionText: {
-    color: '#374151',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  companyOptionTextSelected: {
-    color: '#1D4ED8',
   },
   typeOptions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
   },
-  typeOptionButton: {
+  chip: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 999,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.round,
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#FFFFFF',
+    paddingVertical: 7,
+    backgroundColor: colors.surface,
   },
-  typeOptionButtonSelected: {
-    borderColor: '#2563EB',
-    backgroundColor: '#DBEAFE',
+  chipSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
   },
-  typeOptionText: {
-    color: '#374151',
+  chipText: {
+    color: colors.subtext,
     fontSize: 13,
     fontWeight: '600',
   },
-  typeOptionTextSelected: {
-    color: '#1D4ED8',
+  chipTextSelected: {
+    color: colors.primaryStrong,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 10,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.sm,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    color: '#111827',
-    backgroundColor: '#FFFFFF',
+    color: colors.text,
+    backgroundColor: colors.surface,
     fontSize: 15,
   },
   dateTimeRow: {
@@ -629,7 +745,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   helperText: {
-    color: '#6B7280',
+    color: colors.muted,
     fontSize: 13,
     fontWeight: '500',
     paddingVertical: 6,
@@ -639,32 +755,7 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 4,
   },
-  actionButton: {
+  flexButton: {
     flex: 1,
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelButton: {
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    backgroundColor: '#FFFFFF',
-  },
-  cancelButtonText: {
-    color: '#374151',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  submitButton: {
-    backgroundColor: '#2563EB',
-  },
-  submitButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  buttonDisabled: {
-    opacity: 0.6,
   },
 });

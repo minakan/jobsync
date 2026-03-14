@@ -22,8 +22,13 @@ import {
   type UpdateCompanyPayload,
   updateCompany,
 } from '../../api/companies';
-import { STATUS_CONFIG, StatusBadge } from '../../components/company/StatusBadge';
+import { STATUS_CONFIG, StatusBadge } from '@/components/company/StatusBadge';
+import { AppButton } from '@/components/ui/AppButton';
+import { AppCard } from '@/components/ui/AppCard';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { SectionHeader } from '@/components/ui/SectionHeader';
 import { CompanyStatus, type Company } from '../../types/company';
+import { colors, radius, shadow, spacing } from '@/theme/tokens';
 
 const STATUS_OPTIONS: CompanyStatus[] = [
   CompanyStatus.Interested,
@@ -40,6 +45,7 @@ const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error && error.message.length > 0) {
     return error.message;
   }
+
   return '通信に失敗しました。時間をおいて再試行してください。';
 };
 
@@ -50,7 +56,7 @@ export default function CompaniesScreen() {
   const [selectedStatus, setSelectedStatus] = useState<CompanyStatus>(CompanyStatus.Interested);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [detailStatus, setDetailStatus] = useState<CompanyStatus>(CompanyStatus.Interested);
-  const [detailPriority, setDetailPriority] = useState<number>(3);
+  const [detailPriority, setDetailPriority] = useState(3);
   const [detailNotes, setDetailNotes] = useState('');
 
   const companiesQuery = useQuery({
@@ -72,13 +78,8 @@ export default function CompaniesScreen() {
   });
 
   const updateCompanyMutation = useMutation({
-    mutationFn: ({
-      id,
-      payload,
-    }: {
-      id: string;
-      payload: UpdateCompanyPayload;
-    }) => updateCompany(id, payload),
+    mutationFn: ({ id, payload }: { id: string; payload: UpdateCompanyPayload }) =>
+      updateCompany(id, payload),
     onSuccess: async (updatedCompany: Company) => {
       await queryClient.invalidateQueries({ queryKey: companyQueryKeys.all });
       setSelectedCompany(updatedCompany);
@@ -112,6 +113,8 @@ export default function CompaniesScreen() {
     return companiesQuery.data ?? [];
   }, [companiesQuery.data]);
 
+  const isDetailPending = updateCompanyMutation.isPending || deleteCompanyMutation.isPending;
+
   const handleRefresh = async (): Promise<void> => {
     await companiesQuery.refetch();
   };
@@ -141,12 +144,11 @@ export default function CompaniesScreen() {
     setDetailNotes(company.notes ?? company.note ?? '');
   };
 
-  const isDetailPending = updateCompanyMutation.isPending || deleteCompanyMutation.isPending;
-
   const handleCloseCompanyDetail = (): void => {
     if (isDetailPending) {
       return;
     }
+
     setSelectedCompany(null);
   };
 
@@ -192,16 +194,18 @@ export default function CompaniesScreen() {
   const renderCompanyItem = ({ item }: { item: Company }) => {
     return (
       <Pressable
-        style={({ pressed }) => [styles.companyCard, pressed && styles.companyCardPressed]}
+        style={({ pressed }) => [styles.cardPressable, pressed && styles.cardPressed]}
         onPress={() => handleOpenCompanyDetail(item)}
       >
-        <View style={styles.companyHeader}>
-          <Text style={styles.companyName} numberOfLines={1}>
-            {item.name}
-          </Text>
-          <Text style={styles.priorityText}>優先度 {item.priority}</Text>
-        </View>
-        <StatusBadge status={item.status} />
+        <AppCard>
+          <View style={styles.companyHeader}>
+            <Text style={styles.companyName} numberOfLines={1}>
+              {item.name}
+            </Text>
+            <Text style={styles.priorityText}>優先度 {item.priority}</Text>
+          </View>
+          <StatusBadge status={item.status} />
+        </AppCard>
       </Pressable>
     );
   };
@@ -210,7 +214,8 @@ export default function CompaniesScreen() {
     <SafeAreaView style={styles.safeArea}>
       {companiesQuery.isLoading ? (
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#2563EB" />
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>企業データを読み込み中...</Text>
         </View>
       ) : (
         <FlatList
@@ -221,17 +226,30 @@ export default function CompaniesScreen() {
           onRefresh={handleRefresh}
           refreshing={companiesQuery.isRefetching}
           ItemSeparatorComponent={() => <View style={styles.listGap} />}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>企業を追加してください</Text>
+          ListHeaderComponent={
+            <View style={styles.listHeader}>
+              <SectionHeader
+                title="企業管理"
+                subtitle="応募企業の進捗・優先度・メモを一元管理"
+              />
             </View>
+          }
+          ListEmptyComponent={
+            <AppCard>
+              <EmptyState
+                title="企業を追加してください"
+                description="＋ボタンから最初の企業を登録できます。"
+              />
+            </AppCard>
           }
         />
       )}
 
-      <Pressable style={styles.fab} onPress={() => setIsCreateModalVisible(true)}>
-        <Text style={styles.fabLabel}>＋</Text>
-      </Pressable>
+      <View style={styles.fabWrap}>
+        <Pressable style={styles.fab} onPress={() => setIsCreateModalVisible(true)}>
+          <Text style={styles.fabLabel}>＋</Text>
+        </Pressable>
+      </View>
 
       <Modal
         visible={isCreateModalVisible}
@@ -241,7 +259,7 @@ export default function CompaniesScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>企業を追加</Text>
+            <SectionHeader title="企業を追加" subtitle="会社名と初期ステータスを設定" />
 
             <Text style={styles.fieldLabel}>会社名</Text>
             <TextInput
@@ -249,21 +267,21 @@ export default function CompaniesScreen() {
               onChangeText={setCompanyName}
               placeholder="例: 株式会社サンプル"
               style={styles.input}
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor={colors.muted}
               autoCapitalize="none"
             />
 
             <Text style={styles.fieldLabel}>ステータス</Text>
-            <View style={styles.statusOptions}>
+            <View style={styles.chipWrap}>
               {STATUS_OPTIONS.map((status) => {
                 const isSelected = selectedStatus === status;
                 return (
                   <Pressable
                     key={status}
-                    style={[styles.statusOptionButton, isSelected && styles.statusOptionButtonSelected]}
+                    style={[styles.chip, isSelected && styles.chipSelected]}
                     onPress={() => setSelectedStatus(status)}
                   >
-                    <Text style={[styles.statusOptionText, isSelected && styles.statusOptionTextSelected]}>
+                    <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
                       {STATUS_CONFIG[status].label}
                     </Text>
                   </Pressable>
@@ -272,25 +290,20 @@ export default function CompaniesScreen() {
             </View>
 
             <View style={styles.modalActions}>
-              <Pressable
-                style={[styles.actionButton, styles.cancelButton]}
+              <AppButton
+                label="キャンセル"
+                variant="secondary"
+                onPress={() => setIsCreateModalVisible(false)}
+                style={styles.flexButton}
+              />
+              <AppButton
+                label="追加"
                 onPress={() => {
-                  setIsCreateModalVisible(false);
+                  void handleSubmit();
                 }}
-              >
-                <Text style={styles.cancelButtonText}>キャンセル</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.actionButton, styles.submitButton, createCompanyMutation.isPending && styles.buttonDisabled]}
-                onPress={handleSubmit}
-                disabled={createCompanyMutation.isPending}
-              >
-                {createCompanyMutation.isPending ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.submitButtonText}>追加</Text>
-                )}
-              </Pressable>
+                loading={createCompanyMutation.isPending}
+                style={styles.flexButton}
+              />
             </View>
           </View>
         </View>
@@ -304,7 +317,7 @@ export default function CompaniesScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>企業詳細</Text>
+            <SectionHeader title="企業詳細" subtitle="ステータス、優先度、メモを編集" />
 
             {selectedCompany ? (
               <ScrollView
@@ -318,17 +331,17 @@ export default function CompaniesScreen() {
                 </View>
 
                 <Text style={styles.fieldLabel}>ステータス</Text>
-                <View style={styles.statusOptions}>
+                <View style={styles.chipWrap}>
                   {STATUS_OPTIONS.map((status) => {
                     const isSelected = detailStatus === status;
                     return (
                       <Pressable
                         key={status}
-                        style={[styles.statusOptionButton, isSelected && styles.statusOptionButtonSelected]}
+                        style={[styles.chip, isSelected && styles.chipSelected]}
                         onPress={() => setDetailStatus(status)}
                         disabled={isDetailPending}
                       >
-                        <Text style={[styles.statusOptionText, isSelected && styles.statusOptionTextSelected]}>
+                        <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
                           {STATUS_CONFIG[status].label}
                         </Text>
                       </Pressable>
@@ -347,7 +360,12 @@ export default function CompaniesScreen() {
                         onPress={() => setDetailPriority(priority)}
                         disabled={isDetailPending}
                       >
-                        <Text style={[styles.priorityButtonText, isSelected && styles.priorityButtonTextSelected]}>
+                        <Text
+                          style={[
+                            styles.priorityButtonText,
+                            isSelected && styles.priorityButtonTextSelected,
+                          ]}
+                        >
                           {priority}
                         </Text>
                       </Pressable>
@@ -360,7 +378,7 @@ export default function CompaniesScreen() {
                   value={detailNotes}
                   onChangeText={setDetailNotes}
                   placeholder="メモを入力"
-                  placeholderTextColor="#9CA3AF"
+                  placeholderTextColor={colors.muted}
                   style={[styles.input, styles.notesInput]}
                   multiline
                   textAlignVertical="top"
@@ -368,40 +386,31 @@ export default function CompaniesScreen() {
                 />
 
                 <View style={styles.modalActions}>
-                  <Pressable
-                    style={[styles.actionButton, styles.cancelButton, isDetailPending && styles.buttonDisabled]}
+                  <AppButton
+                    label="閉じる"
+                    variant="secondary"
                     onPress={handleCloseCompanyDetail}
                     disabled={isDetailPending}
-                  >
-                    <Text style={styles.cancelButtonText}>閉じる</Text>
-                  </Pressable>
-                  <Pressable
-                    style={[styles.actionButton, styles.submitButton, isDetailPending && styles.buttonDisabled]}
-                    onPress={handleUpdateCompany}
+                    style={styles.flexButton}
+                  />
+                  <AppButton
+                    label="保存"
+                    onPress={() => {
+                      void handleUpdateCompany();
+                    }}
+                    loading={updateCompanyMutation.isPending}
                     disabled={isDetailPending}
-                  >
-                    {updateCompanyMutation.isPending ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <Text style={styles.submitButtonText}>保存</Text>
-                    )}
-                  </Pressable>
+                    style={styles.flexButton}
+                  />
                 </View>
 
-                <Pressable
-                  style={[
-                    styles.deleteButton,
-                    deleteCompanyMutation.isPending && styles.buttonDisabled,
-                  ]}
+                <AppButton
+                  label="企業を削除"
+                  variant="danger"
                   onPress={handleDeleteCompany}
+                  loading={deleteCompanyMutation.isPending}
                   disabled={isDetailPending}
-                >
-                  {deleteCompanyMutation.isPending ? (
-                    <ActivityIndicator size="small" color="#DC2626" />
-                  ) : (
-                    <Text style={styles.deleteButtonText}>企業を削除</Text>
-                  )}
-                </Pressable>
+                />
               </ScrollView>
             ) : null}
           </View>
@@ -414,32 +423,36 @@ export default function CompaniesScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: colors.background,
   },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 10,
+  },
+  loadingText: {
+    color: colors.subtext,
+    fontSize: 14,
+    fontWeight: '600',
   },
   listContent: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
     paddingBottom: 112,
     flexGrow: 1,
+  },
+  listHeader: {
+    marginBottom: 12,
   },
   listGap: {
     height: 10,
   },
-  companyCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    padding: 14,
-    gap: 8,
+  cardPressable: {
+    borderRadius: radius.md,
   },
-  companyCardPressed: {
-    opacity: 0.75,
+  cardPressed: {
+    opacity: 0.88,
   },
   companyHeader: {
     flexDirection: 'row',
@@ -449,61 +462,50 @@ const styles = StyleSheet.create({
   },
   companyName: {
     flex: 1,
-    color: '#111827',
+    color: colors.text,
     fontSize: 16,
     fontWeight: '700',
   },
   priorityText: {
-    color: '#374151',
+    color: colors.subtext,
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
   },
-  emptyContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 120,
-  },
-  emptyText: {
-    color: '#6B7280',
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  fab: {
+  fabWrap: {
     position: 'absolute',
     right: 16,
     bottom: 24,
+  },
+  fab: {
     width: 56,
     height: 56,
-    borderRadius: 999,
+    borderRadius: radius.round,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2563EB',
-    shadowColor: '#1F2937',
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
+    backgroundColor: colors.primary,
+    ...shadow.floating,
   },
   fabLabel: {
     color: '#FFFFFF',
-    fontSize: 28,
+    fontSize: 30,
     lineHeight: 30,
     fontWeight: '500',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: '#00000066',
+    backgroundColor: colors.overlay,
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
     paddingHorizontal: 20,
     paddingTop: 20,
     paddingBottom: 30,
     gap: 12,
+    borderTopWidth: 1,
+    borderColor: colors.border,
   },
   detailScrollArea: {
     maxHeight: 480,
@@ -512,47 +514,61 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingBottom: 8,
   },
-  modalTitle: {
-    color: '#111827',
-    fontSize: 20,
-    fontWeight: '800',
-    marginBottom: 4,
-  },
   fieldLabel: {
-    color: '#374151',
+    color: colors.subtext,
     fontSize: 14,
     fontWeight: '700',
   },
   readOnlyField: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 10,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: colors.surfaceMuted,
   },
   readOnlyValue: {
-    color: '#111827',
+    color: colors.text,
     fontSize: 15,
     fontWeight: '600',
   },
   input: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 10,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.sm,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    color: '#111827',
-    backgroundColor: '#FFFFFF',
+    color: colors.text,
+    backgroundColor: colors.surface,
     fontSize: 15,
   },
   notesInput: {
     minHeight: 110,
   },
-  statusOptions: {
+  chipWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+  },
+  chip: {
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.round,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: colors.surface,
+  },
+  chipSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  chipText: {
+    color: colors.subtext,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  chipTextSelected: {
+    color: colors.primaryStrong,
   },
   priorityOptions: {
     flexDirection: 'row',
@@ -561,90 +577,31 @@ const styles = StyleSheet.create({
   priorityButton: {
     width: 40,
     height: 36,
-    borderRadius: 10,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: '#D1D5DB',
-    backgroundColor: '#FFFFFF',
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
   priorityButtonSelected: {
-    borderColor: '#2563EB',
-    backgroundColor: '#DBEAFE',
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
   },
   priorityButtonText: {
-    color: '#374151',
+    color: colors.subtext,
     fontSize: 14,
     fontWeight: '700',
   },
   priorityButtonTextSelected: {
-    color: '#1D4ED8',
-  },
-  statusOptionButton: {
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: '#FFFFFF',
-  },
-  statusOptionButtonSelected: {
-    borderColor: '#2563EB',
-    backgroundColor: '#DBEAFE',
-  },
-  statusOptionText: {
-    color: '#374151',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  statusOptionTextSelected: {
-    color: '#1D4ED8',
+    color: colors.primaryStrong,
   },
   modalActions: {
     flexDirection: 'row',
     gap: 10,
     marginTop: 4,
   },
-  actionButton: {
+  flexButton: {
     flex: 1,
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelButton: {
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    backgroundColor: '#FFFFFF',
-  },
-  cancelButtonText: {
-    color: '#374151',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  submitButton: {
-    backgroundColor: '#2563EB',
-  },
-  submitButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  deleteButton: {
-    borderWidth: 1,
-    borderColor: '#FCA5A5',
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FEF2F2',
-  },
-  deleteButtonText: {
-    color: '#DC2626',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  buttonDisabled: {
-    opacity: 0.6,
   },
 });
