@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { addHours, addMonths, addWeeks, format, isSameDay, isValid, startOfDay, startOfMonth, startOfWeek } from 'date-fns';
+import { router } from 'expo-router';
 
 import { companyQueryKeys, fetchCompanies } from '../../api/companies';
 import {
@@ -95,7 +96,7 @@ export default function SchedulesScreen() {
   const initialDate = useMemo(() => startOfDay(new Date()), []);
   const defaultDateTime = useMemo(() => getDefaultDateTimeInput(), []);
 
-  const [viewMode, setViewMode] = useState<ScheduleViewMode>('list');
+  const [viewMode, setViewMode] = useState<ScheduleViewMode>('month');
   const [selectedDate, setSelectedDate] = useState<Date>(initialDate);
   const [focusedWeekStart, setFocusedWeekStart] = useState<Date>(
     startOfWeek(initialDate, { weekStartsOn: WEEK_STARTS_ON }),
@@ -253,6 +254,14 @@ export default function SchedulesScreen() {
     setSelectedDate(normalized);
     setFocusedWeekStart(startOfWeek(normalized, { weekStartsOn: WEEK_STARTS_ON }));
     setFocusedMonth(startOfMonth(normalized));
+  };
+
+  const openDayDetail = (date: Date): void => {
+    handleSelectDate(date);
+    router.push({
+      pathname: '/schedule-day/[dateKey]',
+      params: { dateKey: toDateKey(date) },
+    });
   };
 
   const handleChangeViewMode = (nextMode: ScheduleViewMode): void => {
@@ -493,7 +502,7 @@ export default function SchedulesScreen() {
         <MonthCalendar
           focusedMonth={focusedMonth}
           cells={monthCells}
-          onSelectDate={handleSelectDate}
+          onSelectDate={openDayDetail}
           onPrevMonth={handlePrevMonth}
           onNextMonth={handleNextMonth}
           onLongPressCell={(cell) => {
@@ -502,14 +511,6 @@ export default function SchedulesScreen() {
               openEditModal(firstSchedule);
             }
           }}
-        />
-
-        <DayAgenda
-          date={selectedDate}
-          schedules={selectedDaySchedules}
-          emptyTitle="この日の予定はありません"
-          emptyDescription="月カレンダーの日付をタップして詳細を確認できます。"
-          onLongPressSchedule={openEditModal}
         />
       </ScrollView>
     );
