@@ -29,6 +29,17 @@ import { useAuthStore } from '@/stores/authStore';
 // Androidでブラウザセッションを完了させるために必要
 WebBrowser.maybeCompleteAuthSession();
 
+const getQueryString = (value: unknown): string | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  return trimmed;
+};
+
 export default function LoginScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const { setTokens, setUser } = useAuthStore();
@@ -43,20 +54,24 @@ export default function LoginScreen() {
       // raw URL で判定する
       if (!url.startsWith('jobsync://auth/callback')) return;
 
-      const params = parsed.queryParams as Record<string, string> | null;
+      const params = parsed.queryParams as Record<string, unknown> | null;
       if (!params) return;
 
-      const { access_token, refresh_token, user_id, email, name } = params;
+      const accessToken = getQueryString(params.access_token);
+      const refreshToken = getQueryString(params.refresh_token);
+      const userId = getQueryString(params.user_id);
+      const email = getQueryString(params.email);
+      const name = getQueryString(params.name);
 
-      if (!access_token || !refresh_token) {
+      if (!accessToken || !refreshToken || !userId || !email) {
         Alert.alert('ログインエラー', 'トークンの取得に失敗しました。もう一度お試しください。');
         return;
       }
 
       // トークンとユーザー情報を保存
-      setTokens(access_token, refresh_token);
+      setTokens(accessToken, refreshToken);
       setUser({
-        id: user_id,
+        id: userId,
         email,
         name: name || email,
       });
