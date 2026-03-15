@@ -554,6 +554,238 @@ interface Props {
 
 ---
 
+## Prompt 9 — EAS カスタムビルド＋Firebase FCM 実機テスト（Push Notifications Native）
+
+### ブランチ
+```
+git checkout -b feature/eas-custom-build
+```
+
+### 背景
+現在の `mobile/src/utils/notifications.ts` は `getDevicePushTokenAsync()` を使い、
+`token.type === 'fcm'` のみ許容している。
+Expo Go（iOS）では APNs トークンが返るため FCM トークンが取得できず、
+プッシュ通知のエンドツーエンドテストができない。
+本番同等の通知フローを確立するために EAS カスタムビルド（Development Build）を作成し、
+Firebase SDK を組み込んで実機で FCM トークンを取得できるようにする。
+
+### 参照すべき既存ファイル
+- `mobile/app.json` — bundle ID・package 名が未設定（要追加）
+- `mobile/src/utils/notifications.ts` — FCM トークン取得ロジック
+- `mobile/src/api/users.ts` — `updateFCMToken()` 実装確認
+- `backend/app/services/notification_service.py` — firebase_admin 送信ロジック
+- `backend/.env` — `FIREBASE_CREDENTIALS_JSON` 設定済み
+
+### 事前準備（Codex 実行前に手動で行うこと）
+
+#### 1. Firebase Console で iOS アプリを登録
+1. https://console.firebase.google.com/project/jobsync-489519/overview を開く
+2. 「アプリを追加」→「iOS」を選択
+3. Apple バンドル ID: `com.codepeng.jobsync` を入力して登録
+4. `GoogleService-Info.plist` をダウンロード → `mobile/` 直下に配置
+
+#### 2. Firebase Console で Android アプリを登録
+1. 「アプリを追加」→「Android」を選択
+2. Android パッケージ名: `com.codepeng.jobsync` を入力して登録
+3. `google-services.json` をダウンロード → `mobile/` 直下に配置
+
+#### 3. EAS CLI のインストールとログイン（未済の場合）
+```bash
+npm install -g eas-cli
+eas login   # Expo アカウントでログイン
+```
+
+### タスク一覧
+
+#### 1. `mobile/app.json` に bundle ID・パッケージ名・Firebase プラグインを追加
+```json
+{
+  "expo": {
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.codepeng.jobsync",
+      "googleServicesFile": "./GoogleService-Info.plist"
+    },
+    "android": {
+      "package": "com.codepeng.jobsync",
+      "googleServicesFile": "./google-services.json"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#2563EB"
+        }
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging"
+    ]
+  }
+}
+```
+
+#### 2. Firebase React Native SDK をインストール
+`mobile/` ディレクトリで以下を実行:
+```bash
+npx expo install @react-native-firebase/app @react-native-firebase/messaging
+```
+
+#### 3. `mobile/src/utils/notifications.ts` を更新
+`@react-native-firebase/messaging` で FCM トークンを取得するよう変更:
+```typescript
+import messaging from '@react-native-firebase/messaging';
+
+export async function registerForPushNotifications(): Promise<string | null> {
+  if (!Device.isDevice) {
+    console.info('Push token registration skipped: physical device required.');
+    return null;
+  }
+
+  const granted = await requestPermissions();
+  if (!granted) return null;
+
+  try {
+    await ensureAndroidChannel();
+    const token = await messaging().getToken();
+    if (!token || token.trim().length === 0) return null;
+    return token;
+  } catch (error) {
+    console.error('Failed to get FCM token', error);
+    return null;
+  }
+}
+```
+- `getDevicePushTokenAsync()` と `Notifications.getExpoPushTokenAsync()` の呼び出しを削除
+- `import messaging from '@react-native-firebase/messaging'` を追加
+
+#### 4. `mobile/eas.json` を作成
+```json
+{
+  "cli": {
+    "version": ">= 12.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": false
+      }
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
+```
+
+#### 5. `.gitignore` に Firebase 設定ファイルを追加（`mobile/.gitignore`）
+以下が含まれていなければ追記:
+```
+GoogleService-Info.plist
+google-services.json
+```
+
+#### 6. `mobile/app.json` の `owner` フィールドを追加
+EAS ビルドに必要な Expo アカウント名を追加:
+```json
+{
+  "expo": {
+    "owner": "<Expo アカウント名>",
+    ...
+  }
+}
+```
+※ `eas whoami` で確認できる Expo ユーザー名を入れること
+
+### ビルド実行コマンド（Codex 実装後に手動実行）
+```bash
+cd mobile
+
+# iOS Development Build（実機テスト用）
+eas build --profile development --platform ios
+
+# Android Development Build
+eas build --profile development --platform android
+```
+ビルド完了後、QR コードまたはリンクからデバイスにインストールする。
+
+### 動作確認手順（ビルド後）
+1. インストールした Development Build を実機で起動
+2. ログイン → 通知許可ダイアログで「許可」
+3. バックエンドのログで FCM トークン登録を確認:
+   ```bash
+   docker logs jobsync-mobile-api-1 | grep fcm
+   ```
+4. DB でトークンが保存されたか確認:
+   ```bash
+   docker exec jobsync-mobile-api-1 python3 -c "
+   import asyncio
+   from app.core.database import AsyncSessionLocal
+   from app.models.user import User
+   from sqlalchemy import select
+   async def check():
+       async with AsyncSessionLocal() as s:
+           result = await s.execute(select(User.email, User.fcm_token))
+           for email, token in result.all():
+               print(f'{email}: {token[:40] if token else \"なし\"}')
+   asyncio.run(check())
+   "
+   ```
+5. テスト通知を送信:
+   ```bash
+   docker exec jobsync-mobile-api-1 python3 -c "
+   import asyncio, firebase_admin, json
+   from firebase_admin import credentials, messaging
+   from app.core.config import settings
+   from app.core.database import AsyncSessionLocal
+   from app.models.user import User
+   from sqlalchemy import select
+   try:
+       firebase_admin.get_app()
+   except ValueError:
+       cred = credentials.Certificate(json.loads(settings.FIREBASE_CREDENTIALS_JSON))
+       firebase_admin.initialize_app(cred)
+   async def send_test():
+       async with AsyncSessionLocal() as s:
+           result = await s.execute(select(User.fcm_token).where(User.fcm_token.is_not(None)))
+           row = result.first()
+           if not row:
+               print('FCMトークンが見つかりません')
+               return
+           msg = messaging.Message(
+               notification=messaging.Notification(title='テスト通知 🎉', body='JobSyncからFCMで送信しました'),
+               token=row[0],
+           )
+           print('送信結果:', messaging.send(msg))
+   asyncio.run(send_test())
+   "
+   ```
+
+### 受け入れ条件
+- [ ] `mobile/app.json` に `bundleIdentifier` / `package` / Firebase プラグインが追加されている
+- [ ] `mobile/eas.json` が作成されている
+- [ ] `@react-native-firebase/app` と `@react-native-firebase/messaging` が `package.json` に追加されている
+- [ ] `notifications.ts` が `messaging().getToken()` で FCM トークンを取得するよう変更されている
+- [ ] `GoogleService-Info.plist` と `google-services.json` が `.gitignore` に含まれている
+- [ ] TypeScript エラーなし（`npx tsc --noEmit`）
+
+### 注意事項
+- `GoogleService-Info.plist` と `google-services.json` は機密情報のため **絶対に git にコミットしない**
+- `@react-native-firebase` は Expo Go では動作しない。必ず EAS Development Build を使うこと
+- iOS の場合、APNs キー or 証明書を Firebase Console の「プロジェクト設定 → Cloud Messaging」に登録しないと iOS 実機に通知が届かない（Android のみテストする場合は不要）
+- `eas build` は初回に Apple Developer / Google Play の認証情報を求める場合がある
+
+---
+
 ## コーディング規約（共通リマインダー）
 
 ### Python
