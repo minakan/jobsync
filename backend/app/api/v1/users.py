@@ -26,16 +26,15 @@ async def get_my_profile(
     return UserResponse.model_validate(current_user)
 
 
-@router.patch("/me/fcm-token", response_model=UserResponse)
+@router.patch("/me/fcm-token", status_code=204)
 async def update_my_fcm_token(
     payload: UserFcmTokenUpdate,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> UserResponse:
+) -> None:
     current_user.fcm_token = payload.fcm_token
     db.add(current_user)
-    await db.flush()
-    return UserResponse.model_validate(current_user)
+    await db.commit()
 
 
 @router.get("/me/forwarding-address", response_model=UserForwardingAddressResponse)

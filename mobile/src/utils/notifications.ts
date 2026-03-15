@@ -1,28 +1,10 @@
-import Constants from 'expo-constants';
+import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
-import { router } from 'expo-router';
 import { Platform } from 'react-native';
 
-import { apiClient } from '../api/client';
+const ANDROID_CHANNEL_ID = 'default';
 
-type SupportedRoute = '/(tabs)' | '/companies' | '/schedules';
-
-let handlersInitialized = false;
-
-const resolveRoute = (data: Record<string, unknown>): SupportedRoute => {
-  const route = data.route;
-
-  if (route === '/companies' || route === '/schedules' || route === '/(tabs)') {
-    return route;
-  }
-  if (route === '/(tabs)/index') {
-    return '/(tabs)';
-  }
-
-  return '/(tabs)';
-};
-
-export async function requestPermissions(): Promise<boolean> {
+const requestPermissions = async (): Promise<boolean> => {
   try {
     const current = await Notifications.getPermissionsAsync();
     let finalStatus = current.status;
@@ -32,66 +14,54 @@ export async function requestPermissions(): Promise<boolean> {
       finalStatus = requested.status;
     }
 
-    if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('default', {
-        name: 'default',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#2563EB',
-      });
-    }
-
     return finalStatus === 'granted';
   } catch (error) {
     console.error('Failed to request notification permission', error);
     return false;
   }
-}
+};
 
-export async function getDeviceToken(): Promise<string | null> {
-  try {
-    const granted = await requestPermissions();
-    if (!granted) {
-      return null;
-    }
-
-    const projectId =
-      Constants.expoConfig?.extra?.eas?.projectId ??
-      Constants.easConfig?.projectId ??
-      undefined;
-    const tokenResponse = await Notifications.getExpoPushTokenAsync(
-      projectId ? { projectId } : undefined,
-    );
-    return tokenResponse.data;
-  } catch (error) {
-    console.error('Failed to get push token', error);
-    return null;
-  }
-}
-
-export function setupNotificationHandlers(): void {
-  if (handlersInitialized) {
+const ensureAndroidChannel = async (): Promise<void> => {
+  if (Platform.OS !== 'android') {
     return;
   }
 
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: false,
-      shouldSetBadge: false,
-    }),
+  await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
+    name: 'default',
+    importance: Notifications.AndroidImportance.MAX,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: '#2563EB',
   });
+};
 
-  Notifications.addNotificationResponseReceivedListener((response) => {
-    const route = resolveRoute(response.notification.request.content.data);
-    router.push(route);
-  });
+export async function registerForPushNotifications(): Promise<string | null> {
+  if (!Device.isDevice) {
+    console.info('Push token registration skipped because a physical device is required.');
+    return null;
+  }
 
-  handlersInitialized = true;
-}
+  const granted = await requestPermissions();
+  if (!granted) {
+    return null;
+  }
 
-export async function registerTokenToServer(token: string): Promise<void> {
-  await apiClient.patch('/users/me/fcm-token', { fcm_token: token });
+  try {
+    await ensureAndroidChannel();
+    const token = await Notifications.getDevicePushTokenAsync();
+
+    // Backend sends with firebase_admin.messaging, so an FCM registration token is required.
+    if (token.type !== 'fcm') {
+      console.warn(`Unsupported native push token type: ${token.type}`);
+      return null;
+    }
+
+    if (typeof token.data !== 'string' || token.data.trim().length === 0) {
+      return null;
+    }
+
+    return token.data;
+  } catch (error) {
+    console.error('Failed to get native push token', error);
+    return null;
+  }
 }

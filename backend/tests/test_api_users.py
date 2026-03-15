@@ -35,11 +35,8 @@ async def test_update_fcm_token_success(
         headers=_auth_headers(user.id),
     )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["id"] == str(user.id)
-    assert body["email"] == user.email
-    assert "fcm_token" not in body
+    assert response.status_code == 204
+    assert response.text == ""
 
     updated_user = (
         await db_session.execute(

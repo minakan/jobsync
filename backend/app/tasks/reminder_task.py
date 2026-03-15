@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -8,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.logger import logger
 from app.models.schedule import Schedule
@@ -32,6 +34,13 @@ def send_daily_reminders() -> dict[str, int]:
 
 
 async def _send_daily_reminders() -> dict[str, int]:
+    if _is_firebase_credentials_empty():
+        logger.info(
+            "Skipping reminder push because FIREBASE_CREDENTIALS_JSON is empty. "
+            "Set credentials to enable push delivery."
+        )
+        return {"sent": 0, "failed": 0}
+
     notification_service = NotificationService()
     sent = 0
     failed = 0
@@ -108,3 +117,16 @@ def _get_utc_day_range(base_date_jst: date, days_before: int) -> tuple[datetime,
     day_start_jst = datetime.combine(target_date_jst, time.min, tzinfo=JST)
     day_end_jst = day_start_jst + timedelta(days=1)
     return day_start_jst.astimezone(UTC), day_end_jst.astimezone(UTC)
+
+
+def _is_firebase_credentials_empty() -> bool:
+    raw = settings.FIREBASE_CREDENTIALS_JSON.strip()
+    if raw == "":
+        return True
+
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return False
+
+    return isinstance(parsed, dict) and not parsed

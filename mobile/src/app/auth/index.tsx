@@ -12,10 +12,12 @@ import {
 } from 'react-native';
 
 import { authApi } from '@/api/auth';
+import { usersApi } from '@/api/users';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { useAuthStore } from '@/stores/authStore';
 import { colors, radius, shadow, spacing, typography } from '@/theme/tokens';
+import { registerForPushNotifications } from '@/utils/notifications';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -84,6 +86,15 @@ export default function LoginScreen() {
         email,
         name: name || email,
       });
+
+      try {
+        const fcmToken = await registerForPushNotifications();
+        if (fcmToken) {
+          await usersApi.updateFCMToken(fcmToken);
+        }
+      } catch (error) {
+        console.error('Failed to register FCM token after login', error);
+      }
     },
     [setTokens, setUser],
   );
