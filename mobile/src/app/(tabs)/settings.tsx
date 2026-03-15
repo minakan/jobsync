@@ -3,9 +3,8 @@ import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
+  Alert,
   Platform,
-  Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -13,10 +12,15 @@ import {
   View,
 } from 'react-native';
 
+import { authApi } from '@/api/auth';
 import { usersApi } from '@/api/users';
+import { AppButton } from '@/components/ui/AppButton';
+import { AppCard } from '@/components/ui/AppCard';
+import { SectionHeader } from '@/components/ui/SectionHeader';
 import { useAuthStore } from '@/stores/authStore';
+import { colors, radius, spacing, typography } from '@/theme/tokens';
 
-const FORWARDING_STEPS: { title: string; description: string }[] = [
+const forwardingSteps: { title: string; description: string }[] = [
   {
     title: 'STEP 1: 転送アドレスをコピー',
     description: '上のアドレスをコピーしてください',
@@ -33,12 +37,12 @@ const FORWARDING_STEPS: { title: string; description: string }[] = [
   {
     title: 'STEP 4: 確認メールを承認',
     description:
-      'Gmailから確認メールが届きます\nJobSyncが自動的に承認するので、そのままお待ちください（1〜2分）',
+      'Gmailから確認メールが届きます。JobSyncが自動で承認するので、そのまま1〜2分待機してください。',
   },
   {
     title: 'STEP 5: フィルタを設定（推奨）',
     description:
-      '就活関連メールだけを転送するフィルタを設定すると効率的です\n条件例: to:(あなたの就活用アドレス) または 件名に「選考」「面接」を含む',
+      '就活関連メールだけを転送するフィルタを設定すると効率的です。例: 件名に「選考」「面接」。',
   },
 ];
 
@@ -50,7 +54,10 @@ const MONOSPACE_FONT = Platform.select({
 
 export default function SettingsScreen() {
   const logout = useAuthStore((state) => state.logout);
+  const clearAuth = useAuthStore((state) => state.clearAuth);
   const [isCopied, setIsCopied] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+
   const forwardingAddressQuery = useQuery({
     queryKey: ['forwarding-address'],
     queryFn: usersApi.getForwardingAddress,
@@ -70,7 +77,6 @@ export default function SettingsScreen() {
 
   const handleCopyPress = async (): Promise<void> => {
     const address = forwardingAddressQuery.data?.forwarding_email;
-
     if (!address) {
       return;
     }
@@ -84,41 +90,83 @@ export default function SettingsScreen() {
     router.replace('/auth');
   };
 
+  const executeAccountDeletion = async (): Promise<void> => {
+    if (isDeletingAccount) {
+      return;
+    }
+
+    try {
+      setIsDeletingAccount(true);
+      await authApi.deleteAccount();
+      clearAuth();
+      router.replace('/auth');
+    } catch (error) {
+      console.error('Account deletion error:', error);
+      Alert.alert(
+        'アカウント削除エラー',
+        'アカウントの削除に失敗しました。時間をおいて再度お試しください。',
+      );
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  };
+
+  const showFinalDeleteConfirmation = (): void => {
+    Alert.alert('最終確認', 'アカウントを完全に削除します。本当によろしいですか？', [
+      {
+        text: 'キャンセル',
+        style: 'cancel',
+      },
+      {
+        text: '削除する',
+        style: 'destructive',
+        onPress: () => {
+          void executeAccountDeletion();
+        },
+      },
+    ]);
+  };
+
+  const handleDeleteAccountPress = (): void => {
+    Alert.alert('アカウント削除', '本当に削除しますか？この操作は取り消せません。', [
+      {
+        text: 'キャンセル',
+        style: 'cancel',
+      },
+      {
+        text: '削除する',
+        style: 'destructive',
+        onPress: showFinalDeleteConfirmation,
+      },
+    ]);
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>設定</Text>
+        <SectionHeader title="設定" subtitle="Gmail転送の初期設定とアカウント管理" />
 
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Gmail 連携</Text>
-          <Text style={styles.sectionDescription}>
-            Gmailの自動転送を設定すると、選考メールを解析して予定を自動で取り込みます。
-          </Text>
+        <AppCard style={styles.block}>
+          <SectionHeader
+            title="Gmail 連携"
+            subtitle="自動転送を設定すると、選考メールから予定を自動取り込みします。"
+          />
 
           {forwardingAddressQuery.isLoading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator color="#fff" size="small" />
+            <View style={styles.inlineState}>
+              <Text style={styles.stateText}>転送アドレスを取得中...</Text>
             </View>
           ) : forwardingAddressQuery.isError ? (
-            <View style={styles.errorContainer}>
-              <Text style={styles.errorText}>アドレスを取得できませんでした</Text>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.primaryButton,
-                  (pressed || forwardingAddressQuery.isFetching) && styles.buttonPressed,
-                  forwardingAddressQuery.isFetching && styles.buttonDisabled,
-                ]}
+            <View style={styles.errorState}>
+              <Text style={styles.errorText}>転送アドレスを取得できませんでした。</Text>
+              <AppButton
+                label="再試行"
                 onPress={() => {
                   void forwardingAddressQuery.refetch();
                 }}
-                disabled={forwardingAddressQuery.isFetching}
-              >
-                {forwardingAddressQuery.isFetching ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Text style={styles.primaryButtonText}>再試行</Text>
-                )}
-              </Pressable>
+                compact
+                loading={forwardingAddressQuery.isFetching}
+              />
             </View>
           ) : (
             <>
@@ -129,34 +177,41 @@ export default function SettingsScreen() {
                 </Text>
               </View>
 
-              <Pressable
-                style={({ pressed }) => [styles.primaryButton, pressed && styles.buttonPressed]}
+              <AppButton
+                label={isCopied ? 'コピーしました' : '転送アドレスをコピー'}
                 onPress={() => {
                   void handleCopyPress();
                 }}
-              >
-                <Text style={styles.primaryButtonText}>{isCopied ? 'コピーしました' : 'コピー'}</Text>
-              </Pressable>
+              />
             </>
           )}
+        </AppCard>
 
-          <View style={styles.guideCard}>
-            <Text style={styles.guideTitle}>【Gmailで転送設定する手順】</Text>
-            {FORWARDING_STEPS.map((step) => (
+        <AppCard style={styles.block}>
+          <SectionHeader title="設定ガイド" subtitle="初回のみ5ステップで完了します。" />
+
+          <View style={styles.steps}>
+            {forwardingSteps.map((step) => (
               <View key={step.title} style={styles.stepItem}>
                 <Text style={styles.stepTitle}>{step.title}</Text>
                 <Text style={styles.stepDescription}>{step.description}</Text>
               </View>
             ))}
           </View>
-        </View>
+        </AppCard>
 
-        <Pressable
-          style={({ pressed }) => [styles.logoutButton, pressed && styles.buttonPressed]}
-          onPress={handleLogout}
-        >
-          <Text style={styles.logoutButtonText}>ログアウト</Text>
-        </Pressable>
+        <View style={styles.accountActions}>
+          <AppButton label="ログアウト" variant="danger" onPress={handleLogout} />
+          <AppButton
+            label="アカウントを削除する"
+            variant="danger"
+            onPress={handleDeleteAccountPress}
+            disabled={isDeletingAccount}
+            loading={isDeletingAccount}
+            style={styles.deleteAccountButton}
+            textStyle={styles.deleteAccountButtonText}
+          />
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -165,126 +220,87 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: colors.background,
   },
   container: {
-    paddingHorizontal: 24,
+    paddingHorizontal: spacing.lg,
     paddingTop: Platform.OS === 'ios' ? 16 : 24,
     paddingBottom: 40,
-    gap: 24,
+    gap: spacing.md,
   },
-  title: {
-    fontSize: 30,
-    fontWeight: '700',
-    color: '#fff',
-    letterSpacing: 0.8,
+  block: {
+    gap: spacing.md,
   },
-  card: {
-    backgroundColor: '#111',
-    borderRadius: 16,
+  inlineState: {
     borderWidth: 1,
-    borderColor: '#222',
-    padding: 18,
-    gap: 14,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  sectionDescription: {
-    fontSize: 13,
-    lineHeight: 20,
-    color: '#9ca3af',
-  },
-  loadingContainer: {
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceMuted,
+    paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 56,
   },
-  errorContainer: {
+  stateText: {
+    color: colors.subtext,
+    fontSize: typography.caption,
+    fontWeight: '600',
+  },
+  errorState: {
     gap: 10,
   },
   errorText: {
-    fontSize: 14,
-    color: '#ff9d9d',
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: '600',
   },
   addressBox: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
-    borderColor: '#333',
-    borderRadius: 12,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
     padding: 14,
-    gap: 8,
+    gap: 6,
   },
   addressLabel: {
     fontSize: 12,
-    color: '#9ca3af',
+    fontWeight: '700',
+    color: colors.muted,
   },
   addressText: {
-    color: '#fff',
+    color: colors.text,
     fontSize: 14,
     lineHeight: 20,
     fontFamily: MONOSPACE_FONT,
+    fontWeight: '600',
   },
-  primaryButton: {
-    minHeight: 52,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#6C63FF',
-  },
-  primaryButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  logoutButton: {
-    minHeight: 52,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#3a1f1f',
-    backgroundColor: '#1a1111',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoutButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#ff9d9d',
-  },
-  guideCard: {
-    marginTop: 4,
-    backgroundColor: '#151515',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#262626',
-    padding: 14,
-    gap: 12,
-  },
-  guideTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#fff',
+  steps: {
+    gap: 10,
   },
   stepItem: {
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primaryBorder,
+    paddingLeft: 12,
     gap: 4,
   },
   stepTitle: {
+    color: colors.text,
     fontSize: 13,
     fontWeight: '700',
-    color: '#fff',
   },
   stepDescription: {
+    color: colors.subtext,
     fontSize: 13,
     lineHeight: 19,
-    color: '#c4c4c4',
+    fontWeight: '500',
   },
-  buttonPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.99 }],
+  accountActions: {
+    gap: spacing.sm,
+    marginTop: spacing.sm,
   },
-  buttonDisabled: {
-    opacity: 0.65,
+  deleteAccountButton: {
+    borderColor: '#FF3B30',
+  },
+  deleteAccountButtonText: {
+    color: '#FF3B30',
   },
 });

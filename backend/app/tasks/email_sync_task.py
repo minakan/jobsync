@@ -134,13 +134,17 @@ async def _sync_emails(user_id: str) -> dict[str, int | str]:
             )
 
             for event in analysis.extracted_events:
+                start_at = _parse_event_datetime(event.datetime, received_at)
                 schedule_row = Schedule(
                     user_id=user_uuid,
                     company_id=company.id if company is not None else None,
                     type=_to_schedule_type(event.type),
                     title=event.title or subject_text or "選考予定",
                     description=event.description or None,
-                    scheduled_at=_parse_event_datetime(event.datetime, received_at),
+                    scheduled_at=start_at,
+                    start_at=start_at,
+                    end_at=start_at + timedelta(hours=1),
+                    is_all_day=False,
                     online_url=event.url,
                     source_email_id=email_row.id,
                 )

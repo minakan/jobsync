@@ -150,7 +150,7 @@ async def delete_company(
 
 def _build_company_response(company: Company) -> CompanyResponse:
     response = CompanyResponse.model_validate(company)
-    sorted_schedules = sorted(response.schedules, key=lambda row: row.scheduled_at)
+    sorted_schedules = sorted(response.schedules, key=lambda row: row.start_at)
     return response.model_copy(update={"schedules": sorted_schedules})
 
 

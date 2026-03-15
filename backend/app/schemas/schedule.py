@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.schedule import ScheduleType
 
@@ -17,7 +17,11 @@ def _normalize_datetime(value: datetime) -> datetime:
 class ScheduleCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     type: ScheduleType
-    scheduled_at: datetime
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+    # backward-compat request field (mapped to start_at)
+    scheduled_at: datetime | None = None
+    is_all_day: bool = False
     company_id: UUID | None = None
     description: str | None = None
     location: str | None = None
@@ -25,19 +29,33 @@ class ScheduleCreate(BaseModel):
     reminder_1day: bool = False
     reminder_3day: bool = False
 
-    @field_validator("scheduled_at")
+    @model_validator(mode="before")
     @classmethod
-    def validate_scheduled_at(cls, value: datetime) -> datetime:
-        normalized = _normalize_datetime(value)
-        if normalized < datetime.now(UTC):
-            raise ValueError("scheduled_at は現在以降を指定してください")
-        return normalized
+    def map_legacy_scheduled_at(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+
+        if value.get("start_at") is None and value.get("scheduled_at") is not None:
+            copied = dict(value)
+            copied["start_at"] = value["scheduled_at"]
+            return copied
+        return value
+
+    @field_validator("start_at", "end_at", "scheduled_at")
+    @classmethod
+    def normalize_datetimes(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return _normalize_datetime(value)
 
 
 class ScheduleUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     type: ScheduleType | None = None
+    start_at: datetime | None = None
+    end_at: datetime | None = None
     scheduled_at: datetime | None = None
+    is_all_day: bool | None = None
     company_id: UUID | None = None
     description: str | None = None
     location: str | None = None
@@ -45,16 +63,24 @@ class ScheduleUpdate(BaseModel):
     reminder_1day: bool | None = None
     reminder_3day: bool | None = None
 
-    @field_validator("scheduled_at")
+    @model_validator(mode="before")
     @classmethod
-    def validate_scheduled_at(cls, value: datetime | None) -> datetime | None:
+    def map_legacy_scheduled_at(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+
+        if value.get("start_at") is None and value.get("scheduled_at") is not None:
+            copied = dict(value)
+            copied["start_at"] = value["scheduled_at"]
+            return copied
+        return value
+
+    @field_validator("start_at", "end_at", "scheduled_at")
+    @classmethod
+    def normalize_datetimes(cls, value: datetime | None) -> datetime | None:
         if value is None:
             return None
-
-        normalized = _normalize_datetime(value)
-        if normalized < datetime.now(UTC):
-            raise ValueError("scheduled_at は現在以降を指定してください")
-        return normalized
+        return _normalize_datetime(value)
 
 
 class ScheduleResponse(BaseModel):
@@ -64,6 +90,9 @@ class ScheduleResponse(BaseModel):
     type: ScheduleType
     title: str
     description: str | None
+    start_at: datetime
+    end_at: datetime
+    is_all_day: bool
     scheduled_at: datetime
     location: str | None
     online_url: str | None

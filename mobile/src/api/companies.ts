@@ -1,6 +1,6 @@
 import { apiClient } from './client';
 
-import { CompanyStatus, type Company } from '../types/company';
+import { CompanyStatus, type Company, type StatusHistoryEntry } from '../types/company';
 
 interface ListResponse<T> {
   items: T[];
@@ -27,6 +27,17 @@ interface CompanyApiModel {
   createdAt?: string;
   updated_at?: string;
   updatedAt?: string;
+  status_history?: CompanyApiStatusHistoryEntry[];
+  statusHistory?: CompanyApiStatusHistoryEntry[];
+}
+
+interface CompanyApiStatusHistoryEntry {
+  status?: CompanyApiStatus;
+  from?: CompanyApiStatus;
+  to?: CompanyApiStatus;
+  changed_at?: string;
+  changedAt?: string;
+  note?: string | null;
 }
 
 export interface CreateCompanyPayload {
@@ -73,6 +84,18 @@ const normalizeStatus = (status: CompanyApiStatus): CompanyStatus => {
 };
 
 const normalizeCompany = (company: CompanyApiModel): Company => {
+  const rawHistory = company.status_history ?? company.statusHistory ?? [];
+  const status_history: StatusHistoryEntry[] = rawHistory.map((entry) => {
+    const rawStatus =
+      entry.status ?? entry.to ?? entry.from ?? CompanyStatus.Interested;
+
+    return {
+      status: normalizeStatus(rawStatus),
+      changed_at: entry.changed_at ?? entry.changedAt ?? '',
+      note: entry.note ?? null,
+    };
+  });
+
   return {
     id: company.id,
     userId: company.userId ?? company.user_id ?? '',
@@ -81,6 +104,7 @@ const normalizeCompany = (company: CompanyApiModel): Company => {
     priority: company.priority ?? 3,
     notes: company.notes ?? company.note ?? null,
     note: company.note ?? company.notes ?? null,
+    status_history,
     createdAt: company.createdAt ?? company.created_at ?? '',
     updatedAt: company.updatedAt ?? company.updated_at ?? '',
   };

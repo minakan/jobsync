@@ -6,10 +6,33 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import * as Notifications from 'expo-notifications';
 import { router, Stack, useSegments } from 'expo-router';
 import { useEffect, useState } from 'react';
 
 import { useAuthStore } from '@/stores/authStore';
+
+type NotificationRoute = '/(tabs)' | '/(tabs)/schedules';
+
+const resolveNotificationRoute = (rawData: unknown): NotificationRoute => {
+  if (!rawData || typeof rawData !== 'object') {
+    return '/(tabs)';
+  }
+
+  const data = rawData as Record<string, unknown>;
+  const type = data.type;
+  const scheduleId = data.schedule_id;
+
+  if (
+    type === 'schedule_reminder' ||
+    type === 'new_schedule_detected' ||
+    (typeof scheduleId === 'string' && scheduleId.length > 0)
+  ) {
+    return '/(tabs)/schedules';
+  }
+
+  return '/(tabs)';
+};
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
@@ -50,6 +73,37 @@ export default function RootLayout() {
         },
       }),
   );
+
+  useEffect(() => {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+      }),
+    });
+
+    const foregroundSubscription = Notifications.addNotificationReceivedListener(
+      (notification) => {
+        const route = resolveNotificationRoute(notification.request.content.data);
+        console.info(`Foreground notification received. route=${route}`);
+      },
+    );
+
+    const responseSubscription = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        const route = resolveNotificationRoute(response.notification.request.content.data);
+        router.push(route);
+      },
+    );
+
+    return () => {
+      foregroundSubscription.remove();
+      responseSubscription.remove();
+    };
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

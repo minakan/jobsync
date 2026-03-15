@@ -7,6 +7,10 @@ export interface Schedule {
   companyName: string;
   title: string;
   type: ScheduleType;
+  startAt: string;
+  endAt: string;
+  isAllDay: boolean;
+  // legacy compatibility field (same value as startAt)
   scheduledAt: string;
   location?: string | null;
   memo?: string | null;

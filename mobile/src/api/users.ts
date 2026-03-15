@@ -11,4 +11,7 @@ export const usersApi = {
     );
     return response.data;
   },
+  updateFCMToken: async (token: string): Promise<void> => {
+    await apiClient.patch('/users/me/fcm-token', { fcm_token: token });
+  },
 };

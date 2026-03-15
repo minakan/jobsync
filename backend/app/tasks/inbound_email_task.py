@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from email.utils import parseaddr
 from typing import Any
 from uuid import UUID
@@ -115,13 +115,17 @@ async def _process_inbound_email(
 
         created_schedules = 0
         for event in analysis.extracted_events:
+            start_at = _parse_event_datetime(event.datetime, received_at)
             schedule_row = Schedule(
                 user_id=user_uuid,
                 company_id=company.id if company is not None else None,
                 type=_to_schedule_type(event.type),
                 title=event.title or subject or "選考予定",
                 description=event.description or None,
-                scheduled_at=_parse_event_datetime(event.datetime, received_at),
+                scheduled_at=start_at,
+                start_at=start_at,
+                end_at=start_at + timedelta(hours=1),
+                is_all_day=False,
                 online_url=event.url,
                 source_email_id=email_row.id,
             )

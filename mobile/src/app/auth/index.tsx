@@ -1,61 +1,73 @@
-/**
- * ログイン画面
- *
- * フロー:
- *  1. "Googleでログイン" タップ
- *  2. バックエンドから OAuth URL を取得
- *  3. expo-web-browser でブラウザを開く
- *  4. Google認証後、バックエンドが jobsync://auth/callback?access_token=...&refresh_token=... にリダイレクト
- *  5. expo-linking がdeep linkを受け取り、トークンを保存してホーム画面へ
- */
-
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
-  Image,
   Platform,
-  Pressable,
+  SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 
 import { authApi } from '@/api/auth';
+import { usersApi } from '@/api/users';
+import { AppButton } from '@/components/ui/AppButton';
+import { AppCard } from '@/components/ui/AppCard';
 import { useAuthStore } from '@/stores/authStore';
+import { colors, radius, shadow, spacing, typography } from '@/theme/tokens';
+import { registerForPushNotifications } from '@/utils/notifications';
 
-// Androidでブラウザセッションを完了させるために必要
 WebBrowser.maybeCompleteAuthSession();
 
 const getQueryString = (value: unknown): string | null => {
   if (typeof value !== 'string') {
     return null;
   }
+
   const trimmed = value.trim();
   if (trimmed.length === 0) {
     return null;
   }
+
   return trimmed;
 };
+
+const featureItems = [
+  {
+    emoji: '📧',
+    title: 'メール自動解析',
+    description: 'Gmail連携で選考メールから予定を自動抽出します',
+  },
+  {
+    emoji: '📅',
+    title: '選考を一元管理',
+    description: '企業状況と面接予定を同じ画面で確認できます',
+  },
+  {
+    emoji: '🔔',
+    title: '締切を見逃さない',
+    description: '直近の締切や面接予定を見やすく通知します',
+  },
+] as const;
 
 export default function LoginScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const { setTokens, setUser } = useAuthStore();
 
-  // deep link ハンドラ（jobsync://auth/callback?... を受け取る）
   const handleDeepLink = useCallback(
     async (url: string) => {
       const parsed = Linking.parse(url);
 
-      // jobsync://auth/callback かどうか確認
-      // Linking.parse は jobsync://auth/callback を hostname='auth', path='callback' に分解するため
-      // raw URL で判定する
-      if (!url.startsWith('jobsync://auth/callback')) return;
+      if (!url.startsWith('jobsync://auth/callback')) {
+        return;
+      }
 
       const params = parsed.queryParams as Record<string, unknown> | null;
-      if (!params) return;
+      if (!params) {
+        return;
+      }
 
       const accessToken = getQueryString(params.access_token);
       const refreshToken = getQueryString(params.refresh_token);
@@ -68,241 +80,210 @@ export default function LoginScreen() {
         return;
       }
 
-      // トークンとユーザー情報を保存
       setTokens(accessToken, refreshToken);
       setUser({
         id: userId,
         email,
         name: name || email,
       });
+
+      try {
+        const fcmToken = await registerForPushNotifications();
+        if (fcmToken) {
+          await usersApi.updateFCMToken(fcmToken);
+        }
+      } catch (error) {
+        console.error('Failed to register FCM token after login', error);
+      }
     },
     [setTokens, setUser],
   );
 
-  // deep link イベントをリッスン
   useEffect(() => {
     const subscription = Linking.addEventListener('url', ({ url }) => {
-      handleDeepLink(url);
+      void handleDeepLink(url);
     });
 
-    // アプリが閉じた状態からdeep linkで開かれた場合
     Linking.getInitialURL().then((url) => {
-      if (url) handleDeepLink(url);
+      if (url) {
+        void handleDeepLink(url);
+      }
     });
 
-    return () => subscription.remove();
+    return () => {
+      subscription.remove();
+    };
   }, [handleDeepLink]);
 
-  const handleGoogleLogin = async () => {
+  const handleGoogleLogin = async (): Promise<void> => {
     try {
       setIsLoading(true);
-
-      // バックエンドからOAuth URLを取得
       const { url } = await authApi.getGoogleLoginUrl();
 
-      // ブラウザでGoogleログインを開く
-      const result = await WebBrowser.openAuthSessionAsync(
-        url,
-        'jobsync://auth/callback', // redirect URLのprefixを指定
-      );
+      const result = await WebBrowser.openAuthSessionAsync(url, 'jobsync://auth/callback');
 
       if (result.type === 'success' && result.url) {
-        // iOS: openAuthSessionAsync が直接URLを返すケース
         await handleDeepLink(result.url);
       }
-      // Android: deep link経由でhandleDeepLinkが呼ばれる
     } catch (error) {
       console.error('Login error:', error);
-      Alert.alert(
-        'ログインエラー',
-        'ログインに失敗しました。ネットワーク接続を確認してください。',
-      );
+      Alert.alert('ログインエラー', 'ログインに失敗しました。ネットワーク接続を確認してください。');
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <View style={styles.container}>
-      {/* ロゴ・タイトル */}
-      <View style={styles.header}>
-        <View style={styles.logoContainer}>
-          <Text style={styles.logoEmoji}>🔍</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.backgroundOrbTop} />
+      <View style={styles.backgroundOrbBottom} />
+
+      <ScrollView contentContainerStyle={styles.container}>
+        <View style={styles.header}>
+          <View style={styles.logoBadge}>
+            <Text style={styles.logoEmoji}>🔍</Text>
+          </View>
+          <Text style={styles.appName}>JobSync</Text>
+          <Text style={styles.tagline}>就活を、漏れなく、迷わず進める。</Text>
         </View>
-        <Text style={styles.appName}>JobSync</Text>
-        <Text style={styles.tagline}>就活を、もっとスマートに。</Text>
-      </View>
 
-      {/* 機能説明 */}
-      <View style={styles.features}>
-        <FeatureItem emoji="📧" title="メール自動解析" desc="Gmailを連携してES・面接の予定を自動取得" />
-        <FeatureItem emoji="📅" title="スケジュール管理" desc="選考状況をカレンダーで一元管理" />
-        <FeatureItem emoji="🔔" title="リマインダー通知" desc="面接前日に自動でプッシュ通知" />
-      </View>
+        <View style={styles.features}>
+          {featureItems.map((feature) => (
+            <AppCard key={feature.title} style={styles.featureCard}>
+              <View style={styles.featureRow}>
+                <Text style={styles.featureEmoji}>{feature.emoji}</Text>
+                <View style={styles.featureTextArea}>
+                  <Text style={styles.featureTitle}>{feature.title}</Text>
+                  <Text style={styles.featureDescription}>{feature.description}</Text>
+                </View>
+              </View>
+            </AppCard>
+          ))}
+        </View>
 
-      {/* ログインボタン */}
-      <View style={styles.footer}>
-        <Pressable
-          style={({ pressed }) => [styles.googleButton, pressed && styles.googleButtonPressed]}
-          onPress={handleGoogleLogin}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <>
-              <Text style={styles.googleIcon}>G</Text>
-              <Text style={styles.googleButtonText}>Googleでログイン</Text>
-            </>
-          )}
-        </Pressable>
+        <View style={styles.footer}>
+          <AppButton
+            label={isLoading ? 'Google連携中...' : 'Googleでログイン'}
+            onPress={() => {
+              void handleGoogleLogin();
+            }}
+            loading={isLoading}
+            style={styles.loginButton}
+          />
 
-        <Text style={styles.disclaimer}>
-          ログインすることで{'\n'}
-          <Text style={styles.link}>利用規約</Text> および{' '}
-          <Text style={styles.link}>プライバシーポリシー</Text> に同意したものとみなします
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-function FeatureItem({
-  emoji,
-  title,
-  desc,
-}: {
-  emoji: string;
-  title: string;
-  desc: string;
-}) {
-  return (
-    <View style={styles.featureItem}>
-      <Text style={styles.featureEmoji}>{emoji}</Text>
-      <View style={styles.featureText}>
-        <Text style={styles.featureTitle}>{title}</Text>
-        <Text style={styles.featureDesc}>{desc}</Text>
-      </View>
-    </View>
+          <Text style={styles.disclaimer}>
+            ログインすることで、<Text style={styles.disclaimerLink}>利用規約</Text> と
+            <Text style={styles.disclaimerLink}> プライバシーポリシー</Text> に同意したものとみなします。
+          </Text>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
-    paddingHorizontal: 28,
-    paddingTop: Platform.OS === 'ios' ? 80 : 60,
-    paddingBottom: 40,
+    backgroundColor: colors.background,
+  },
+  backgroundOrbTop: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: '#DBEAFE66',
+    top: -70,
+    right: -70,
+  },
+  backgroundOrbBottom: {
+    position: 'absolute',
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: '#BFDBFE59',
+    bottom: -60,
+    left: -50,
+  },
+  container: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: Platform.OS === 'ios' ? 24 : 32,
+    paddingBottom: 42,
+    gap: 22,
   },
   header: {
-    alignItems: 'center',
-    marginBottom: 48,
+    gap: 8,
   },
-  logoContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 20,
-    backgroundColor: '#1a1a2e',
-    justifyContent: 'center',
+  logoBadge: {
+    width: 68,
+    height: 68,
+    borderRadius: radius.lg,
     alignItems: 'center',
-    marginBottom: 16,
+    justifyContent: 'center',
+    backgroundColor: colors.primarySoft,
     borderWidth: 1,
-    borderColor: '#6C63FF33',
+    borderColor: colors.primaryBorder,
   },
   logoEmoji: {
-    fontSize: 36,
+    fontSize: 30,
   },
   appName: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#fff',
-    letterSpacing: 1,
-    marginBottom: 8,
+    fontSize: 34,
+    fontWeight: '800',
+    color: colors.text,
+    letterSpacing: 0.4,
   },
   tagline: {
-    fontSize: 16,
-    color: '#888',
-    textAlign: 'center',
+    fontSize: typography.body,
+    color: colors.subtext,
+    lineHeight: 22,
+    fontWeight: '500',
   },
   features: {
-    flex: 1,
-    gap: 20,
-    marginTop: 8,
+    gap: 12,
   },
-  featureItem: {
+  featureCard: {
+    padding: 16,
+  },
+  featureRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#111',
-    borderRadius: 14,
-    padding: 16,
-    gap: 16,
-    borderWidth: 1,
-    borderColor: '#222',
+    gap: 14,
   },
   featureEmoji: {
-    fontSize: 28,
-    width: 40,
+    fontSize: 24,
+    width: 30,
     textAlign: 'center',
   },
-  featureText: {
+  featureTextArea: {
     flex: 1,
+    gap: 2,
   },
   featureTitle: {
+    color: colors.text,
     fontSize: 15,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 2,
+    fontWeight: '700',
   },
-  featureDesc: {
+  featureDescription: {
+    color: colors.subtext,
     fontSize: 13,
-    color: '#777',
     lineHeight: 18,
+    fontWeight: '500',
   },
   footer: {
-    alignItems: 'center',
-    gap: 16,
+    gap: 14,
+    marginTop: 8,
   },
-  googleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#6C63FF',
-    borderRadius: 14,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    width: '100%',
-    gap: 10,
-    minHeight: 56,
-    shadowColor: '#6C63FF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  googleButtonPressed: {
-    opacity: 0.8,
-    transform: [{ scale: 0.98 }],
-  },
-  googleIcon: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#fff',
-    fontStyle: 'italic',
-  },
-  googleButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-    letterSpacing: 0.3,
+  loginButton: {
+    ...shadow.floating,
   },
   disclaimer: {
-    fontSize: 11,
-    color: '#555',
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 18,
     textAlign: 'center',
-    lineHeight: 16,
   },
-  link: {
-    color: '#6C63FF',
+  disclaimerLink: {
+    color: colors.primaryStrong,
+    fontWeight: '700',
   },
 });

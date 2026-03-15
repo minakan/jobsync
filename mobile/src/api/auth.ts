@@ -41,6 +41,13 @@ export const authApi = {
   },
 
   /**
+   * 現在のアカウントを完全削除する
+   */
+  deleteAccount: async (): Promise<void> => {
+    await apiClient.delete('/auth/me');
+  },
+
+  /**
    * 現在の認証済みユーザー情報を取得する
    */
   getMe: async (): Promise<UserInfo> => {

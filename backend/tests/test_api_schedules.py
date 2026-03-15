@@ -39,10 +39,14 @@ async def test_create_schedule_success(
     db_session.add(company)
     await db_session.flush()
 
+    start_at = datetime.now(UTC) + timedelta(days=2)
+    end_at = start_at + timedelta(hours=1)
     payload = {
         "title": "一次面接",
         "type": ScheduleType.INTERVIEW.value,
-        "scheduled_at": (datetime.now(UTC) + timedelta(days=2)).isoformat(),
+        "start_at": start_at.isoformat(),
+        "end_at": end_at.isoformat(),
+        "is_all_day": False,
         "company_id": str(company.id),
         "description": "オンライン面接",
         "location": "Zoom",
@@ -63,6 +67,34 @@ async def test_create_schedule_success(
     assert body["company_id"] == str(company.id)
     assert body["company_name"] == "株式会社テスト"
     assert body["reminder_1day"] is True
+    assert body["is_all_day"] is False
+    assert body["start_at"] == start_at.isoformat().replace("+00:00", "Z")
+    assert body["end_at"] == end_at.isoformat().replace("+00:00", "Z")
+    assert body["scheduled_at"] == body["start_at"]
+
+
+async def test_create_schedule_with_legacy_scheduled_at(
+    client: AsyncClient,
+    user_factory: UserFactory,
+) -> None:
+    user: User = await user_factory()
+    scheduled_at = datetime.now(UTC) + timedelta(days=2)
+
+    response = await client.post(
+        "/api/v1/schedules",
+        json={
+            "title": "旧形式予定",
+            "type": ScheduleType.EVENT.value,
+            "scheduled_at": scheduled_at.isoformat(),
+        },
+        headers=_auth_headers(user.id),
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["scheduled_at"] == body["start_at"]
+    assert body["is_all_day"] is False
+    assert body["end_at"] > body["start_at"]
 
 
 async def test_create_schedule_past_date(
@@ -70,15 +102,62 @@ async def test_create_schedule_past_date(
     user_factory: UserFactory,
 ) -> None:
     user: User = await user_factory()
+    start_at = datetime.now(UTC) - timedelta(days=1)
+    end_at = start_at + timedelta(hours=1)
     payload = {
         "title": "過去予定",
         "type": ScheduleType.EVENT.value,
-        "scheduled_at": (datetime.now(UTC) - timedelta(days=1)).isoformat(),
+        "start_at": start_at.isoformat(),
+        "end_at": end_at.isoformat(),
     }
 
     response = await client.post(
         "/api/v1/schedules",
         json=payload,
+        headers=_auth_headers(user.id),
+    )
+
+    assert response.status_code == 422
+
+
+async def test_create_schedule_invalid_time_range(
+    client: AsyncClient,
+    user_factory: UserFactory,
+) -> None:
+    user: User = await user_factory()
+    start_at = datetime.now(UTC) + timedelta(days=1)
+    end_at = start_at - timedelta(minutes=30)
+
+    response = await client.post(
+        "/api/v1/schedules",
+        json={
+            "title": "不正な時間範囲",
+            "type": ScheduleType.INTERVIEW.value,
+            "start_at": start_at.isoformat(),
+            "end_at": end_at.isoformat(),
+        },
+        headers=_auth_headers(user.id),
+    )
+
+    assert response.status_code == 422
+
+
+async def test_create_schedule_cross_day_is_rejected(
+    client: AsyncClient,
+    user_factory: UserFactory,
+) -> None:
+    user: User = await user_factory()
+    start_at = datetime(2026, 3, 20, 23, 0, tzinfo=UTC)
+    end_at = datetime(2026, 3, 21, 0, 30, tzinfo=UTC)
+
+    response = await client.post(
+        "/api/v1/schedules",
+        json={
+            "title": "跨日予定",
+            "type": ScheduleType.INTERVIEW.value,
+            "start_at": start_at.isoformat(),
+            "end_at": end_at.isoformat(),
+        },
         headers=_auth_headers(user.id),
     )
 

@@ -12,7 +12,11 @@ import { useQuery } from '@tanstack/react-query';
 import { format, isValid, parseISO } from 'date-fns';
 
 import { emailQueryKeys, fetchEmails } from '../../api/emails';
+import { AppCard } from '@/components/ui/AppCard';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { SectionHeader } from '@/components/ui/SectionHeader';
 import { type EmailListItem } from '../../types/email';
+import { colors, radius, spacing } from '@/theme/tokens';
 
 const DEFAULT_LIMIT = 50;
 const DEFAULT_OFFSET = 0;
@@ -21,6 +25,7 @@ const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error && error.message.length > 0) {
     return error.message;
   }
+
   return '通信に失敗しました。時間をおいて再試行してください。';
 };
 
@@ -41,9 +46,11 @@ const senderLabelFor = (item: EmailListItem): string => {
   if (item.sender.length > 0) {
     return item.sender;
   }
+
   if (item.sender_email.length > 0) {
     return item.sender_email;
   }
+
   return '送信者不明';
 };
 
@@ -51,6 +58,7 @@ const subjectLabelFor = (item: EmailListItem): string => {
   if (item.subject.length > 0) {
     return item.subject;
   }
+
   return '(件名なし)';
 };
 
@@ -76,7 +84,7 @@ export default function EmailsScreen() {
 
   const renderEmailItem = ({ item }: { item: EmailListItem }) => {
     return (
-      <View style={styles.card}>
+      <AppCard>
         <View style={styles.cardHeader}>
           <Text style={styles.subject} numberOfLines={1}>
             {subjectLabelFor(item)}
@@ -93,7 +101,7 @@ export default function EmailsScreen() {
           {senderLabelFor(item)}
         </Text>
         <Text style={styles.receivedAt}>{formatReceivedAt(item.received_at)}</Text>
-      </View>
+      </AppCard>
     );
   };
 
@@ -101,7 +109,8 @@ export default function EmailsScreen() {
     <SafeAreaView style={styles.safeArea}>
       {emailsQuery.isLoading ? (
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#2563EB" />
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>メールを読み込み中...</Text>
         </View>
       ) : (
         <FlatList
@@ -112,10 +121,18 @@ export default function EmailsScreen() {
           onRefresh={handleRefresh}
           refreshing={emailsQuery.isRefetching}
           ItemSeparatorComponent={() => <View style={styles.listGap} />}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>メールがありません</Text>
+          ListHeaderComponent={
+            <View style={styles.headerWrap}>
+              <SectionHeader title="受信メール" subtitle="解析済みメール一覧" />
             </View>
+          }
+          ListEmptyComponent={
+            <AppCard>
+              <EmptyState
+                title="メールがありません"
+                description="Gmail転送設定後、解析されたメールがここに表示されます。"
+              />
+            </AppCard>
           }
         />
       )}
@@ -126,40 +143,30 @@ export default function EmailsScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: colors.background,
   },
   centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 10,
+  },
+  loadingText: {
+    color: colors.subtext,
+    fontSize: 14,
+    fontWeight: '600',
   },
   listContent: {
     flexGrow: 1,
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
     paddingBottom: 24,
+  },
+  headerWrap: {
+    marginBottom: 10,
   },
   listGap: {
     height: 10,
-  },
-  emptyContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 120,
-  },
-  emptyText: {
-    color: '#6B7280',
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 8,
-    padding: 14,
   },
   cardHeader: {
     alignItems: 'flex-start',
@@ -167,33 +174,33 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   subject: {
-    color: '#111827',
+    color: colors.text,
     flex: 1,
     fontSize: 16,
     fontWeight: '700',
   },
   sender: {
-    color: '#374151',
+    color: colors.subtext,
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   receivedAt: {
-    color: '#6B7280',
+    color: colors.muted,
     fontSize: 13,
     fontWeight: '500',
   },
   companyBadge: {
-    backgroundColor: '#DBEAFE',
-    borderColor: '#93C5FD',
-    borderRadius: 999,
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primaryBorder,
+    borderRadius: radius.round,
     borderWidth: 1,
     maxWidth: 160,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
   companyBadgeText: {
-    color: '#1D4ED8',
+    color: colors.primaryStrong,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });

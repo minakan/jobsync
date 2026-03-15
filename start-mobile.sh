@@ -29,7 +29,7 @@ step() { echo -e "\n${CYAN}━━━ $1 ━━━${NC}"; }
 # ────────────────────────────────────────────────────────────
 # STEP 1: ローカル IP 取得
 # ────────────────────────────────────────────────────────────
-step "STEP 1/5: IPアドレス確認"
+step "STEP 1/6: IPアドレス確認"
 
 # デフォルトルートのインターフェースからIPを取得（WiFi・テザリング・USB問わず対応）
 DEFAULT_IF=$(route get default 2>/dev/null | awk '/interface:/{print $2}')
@@ -52,7 +52,41 @@ ok "ローカルIP: $IP"
 # ────────────────────────────────────────────────────────────
 # STEP 2: 設定ファイル自動更新
 # ────────────────────────────────────────────────────────────
-step "STEP 2/5: 設定ファイル更新"
+step "STEP 2/6: ngrok起動"
+
+NGROK_DOMAIN="lekisha-unstabilizing-denice.ngrok-free.dev"
+
+# 既存の ngrok プロセスを停止
+pkill -f "ngrok" 2>/dev/null || true
+sleep 1
+
+# バックグラウンドで ngrok を起動
+info "ngrok を起動中..."
+ngrok http --domain="$NGROK_DOMAIN" 8000 > /dev/null 2>&1 &
+NGROK_PID=$!
+
+# ngrok の起動を待機（ローカルAPI localhost:4040 が応答するまで）
+NGROK_READY=false
+for i in $(seq 1 15); do
+  if curl -s http://localhost:4040/api/tunnels > /dev/null 2>&1; then
+    NGROK_READY=true
+    break
+  fi
+  echo -n "."
+  sleep 1
+done
+echo ""
+
+if [ "$NGROK_READY" = true ]; then
+  ok "ngrok: 起動完了 → https://$NGROK_DOMAIN"
+else
+  warn "ngrok の起動確認がタイムアウトしました。接続に時間がかかる場合があります。"
+fi
+
+# ────────────────────────────────────────────────────────────
+# STEP 3/5: 設定ファイル更新
+# ────────────────────────────────────────────────────────────
+step "STEP 3/6: 設定ファイル更新"
 
 # mobile/.env.local
 cat > "$MOBILE_DIR/.env.local" << ENV
@@ -61,7 +95,7 @@ ENV
 ok "mobile/.env.local → EXPO_PUBLIC_API_URL=http://$IP:8000/api/v1"
 
 # ALLOWED_ORIGINS (backend/.env)
-NEW_ORIGINS='["http://localhost:3000","http://localhost:8081","http://'"$IP"':8081","exp://'"$IP"':8081","https://wise-cities-sing.loca.lt"]'
+NEW_ORIGINS='["http://localhost:3000","http://localhost:8081","http://'"$IP"':8081","exp://'"$IP"':8081","https://'"$NGROK_DOMAIN"'"]'
 
 if grep -q "^ALLOWED_ORIGINS=" "$BACKEND_ENV" 2>/dev/null; then
   sed -i '' "s|^ALLOWED_ORIGINS=.*|ALLOWED_ORIGINS=$NEW_ORIGINS|" "$BACKEND_ENV"
@@ -75,9 +109,9 @@ sed -i '' "s|ALLOWED_ORIGINS: '.*'|ALLOWED_ORIGINS: '$NEW_ORIGINS'|" "$COMPOSE_F
 ok "docker-compose.yml → ALLOWED_ORIGINS 更新"
 
 # ────────────────────────────────────────────────────────────
-# STEP 3: Docker バックエンド起動
+# STEP 4: Docker バックエンド起動
 # ────────────────────────────────────────────────────────────
-step "STEP 3/5: Dockerバックエンド起動"
+step "STEP 4/6: Dockerバックエンド起動"
 
 cd "$SCRIPT_DIR"
 
@@ -113,9 +147,9 @@ fi
 ok "バックエンド: 起動完了"
 
 # ────────────────────────────────────────────────────────────
-# STEP 4: Alembic マイグレーション
+# STEP 5: Alembic マイグレーション
 # ────────────────────────────────────────────────────────────
-step "STEP 4/5: DBマイグレーション"
+step "STEP 5/6: DBマイグレーション"
 
 info "alembic upgrade head を実行中..."
 if docker-compose exec -T api alembic upgrade head 2>&1; then
@@ -126,15 +160,16 @@ else
 fi
 
 # ────────────────────────────────────────────────────────────
-# STEP 5: Expo 起動
+# STEP 6: Expo 起動
 # ────────────────────────────────────────────────────────────
-step "STEP 5/5: Expo起動"
+step "STEP 6/6: Expo起動"
 
 echo ""
-echo -e "${GREEN}╔══════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║         準備完了！Expoを起動します       ║${NC}"
-echo -e "${GREEN}║  API URL: http://$IP:8000/api/v1  ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════╝${NC}"
+echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║                     準備完了！                               ║${NC}"
+echo -e "${GREEN}║  API URL    : http://$IP:8000/api/v1                      ║${NC}"
+echo -e "${GREEN}║  Ngrok URL  : https://$NGROK_DOMAIN  ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 info "QRコードをExpo Goでスキャンしてください"
 echo ""
