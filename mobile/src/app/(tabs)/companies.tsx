@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Ionicons } from '@expo/vector-icons';
 
 import {
   companyQueryKeys,
@@ -22,6 +23,7 @@ import {
   type UpdateCompanyPayload,
   updateCompany,
 } from '../../api/companies';
+import { KanbanBoard } from '@/components/company/KanbanBoard';
 import { STATUS_CONFIG, StatusBadge } from '@/components/company/StatusBadge';
 import { StatusHistoryTimeline } from '@/components/company/StatusHistoryTimeline';
 import { AppButton } from '@/components/ui/AppButton';
@@ -41,6 +43,7 @@ const STATUS_OPTIONS: CompanyStatus[] = [
 ];
 
 const PRIORITY_OPTIONS = [1, 2, 3, 4, 5] as const;
+type ViewMode = 'list' | 'kanban';
 
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error && error.message.length > 0) {
@@ -59,6 +62,7 @@ export default function CompaniesScreen() {
   const [detailStatus, setDetailStatus] = useState<CompanyStatus>(CompanyStatus.Interested);
   const [detailPriority, setDetailPriority] = useState(3);
   const [detailNotes, setDetailNotes] = useState('');
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
 
   const companiesQuery = useQuery({
     queryKey: companyQueryKeys.all,
@@ -219,31 +223,60 @@ export default function CompaniesScreen() {
           <Text style={styles.loadingText}>企業データを読み込み中...</Text>
         </View>
       ) : (
-        <FlatList
-          data={companies}
-          keyExtractor={(item) => item.id}
-          renderItem={renderCompanyItem}
-          contentContainerStyle={styles.listContent}
-          onRefresh={handleRefresh}
-          refreshing={companiesQuery.isRefetching}
-          ItemSeparatorComponent={() => <View style={styles.listGap} />}
-          ListHeaderComponent={
-            <View style={styles.listHeader}>
-              <SectionHeader
-                title="企業管理"
-                subtitle="応募企業の進捗・優先度・メモを一元管理"
-              />
+        <View style={styles.contentArea}>
+          <View style={styles.screenHeader}>
+            <SectionHeader title="企業管理" subtitle="応募企業の進捗・優先度・メモを一元管理" />
+
+            <View style={styles.viewToggle}>
+              <Pressable
+                style={[styles.viewToggleButton, viewMode === 'list' && styles.viewToggleButtonActive]}
+                onPress={() => setViewMode('list')}
+                accessibilityRole="button"
+                accessibilityLabel="リスト表示に切り替え"
+              >
+                <Ionicons
+                  name="list-outline"
+                  size={18}
+                  color={viewMode === 'list' ? colors.primaryStrong : colors.subtext}
+                />
+              </Pressable>
+              <Pressable
+                style={[styles.viewToggleButton, viewMode === 'kanban' && styles.viewToggleButtonActive]}
+                onPress={() => setViewMode('kanban')}
+                accessibilityRole="button"
+                accessibilityLabel="カンバン表示に切り替え"
+              >
+                <Ionicons
+                  name="grid-outline"
+                  size={18}
+                  color={viewMode === 'kanban' ? colors.primaryStrong : colors.subtext}
+                />
+              </Pressable>
             </View>
-          }
-          ListEmptyComponent={
-            <AppCard>
-              <EmptyState
-                title="企業を追加してください"
-                description="＋ボタンから最初の企業を登録できます。"
-              />
-            </AppCard>
-          }
-        />
+          </View>
+
+          {viewMode === 'list' ? (
+            <FlatList
+              data={companies}
+              keyExtractor={(item) => item.id}
+              renderItem={renderCompanyItem}
+              contentContainerStyle={styles.listContent}
+              onRefresh={handleRefresh}
+              refreshing={companiesQuery.isRefetching}
+              ItemSeparatorComponent={() => <View style={styles.listGap} />}
+              ListEmptyComponent={
+                <AppCard>
+                  <EmptyState
+                    title="企業を追加してください"
+                    description="＋ボタンから最初の企業を登録できます。"
+                  />
+                </AppCard>
+              }
+            />
+          ) : (
+            <KanbanBoard companies={companies} onCardPress={handleOpenCompanyDetail} />
+          )}
+        </View>
       )}
 
       <View style={styles.fabWrap}>
@@ -440,14 +473,45 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  contentArea: {
+    flex: 1,
+    paddingTop: spacing.md,
+  },
+  screenHeader: {
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  viewToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.round,
+    padding: 2,
+    backgroundColor: colors.surfaceMuted,
+  },
+  viewToggleButton: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.round,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewToggleButtonActive: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.primaryBorder,
+  },
   listContent: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
+    paddingTop: spacing.xs,
     paddingBottom: 112,
     flexGrow: 1,
-  },
-  listHeader: {
-    marginBottom: 12,
   },
   listGap: {
     height: 10,
