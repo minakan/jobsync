@@ -114,6 +114,40 @@ async def test_send_schedule_reminder_for_interview_1day() -> None:
 
 
 @pytest.mark.anyio
+async def test_send_schedule_reminder_for_all_day_es() -> None:
+    service = NotificationService()
+    schedule = _build_schedule(
+        schedule_type=ScheduleType.ES_DEADLINE,
+        scheduled_at=datetime(2026, 3, 10, 0, 0, tzinfo=UTC),
+    )
+    schedule.is_all_day = True
+    captured: dict[str, object] = {}
+
+    async def fake_send_push(
+        self: NotificationService,
+        fcm_token: str,
+        title: str,
+        body: str,
+        data: dict[str, str] | None = None,
+    ) -> bool:
+        captured["title"] = title
+        captured["body"] = body
+        return True
+
+    service.send_push = MethodType(fake_send_push, service)
+
+    result = await service.send_schedule_reminder(
+        fcm_token="fcm-token",
+        schedule=schedule,
+        days_before=1,
+    )
+
+    assert result is True
+    assert captured["title"] == "🚨 明日がES締切です！"
+    assert captured["body"] == "【企業】明日終日が締切です"
+
+
+@pytest.mark.anyio
 async def test_send_new_schedule_detected() -> None:
     service = NotificationService()
     captured: dict[str, object] = {}

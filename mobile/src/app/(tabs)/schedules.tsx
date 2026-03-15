@@ -3,18 +3,32 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   SafeAreaView,
   ScrollView,
   SectionList,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { addHours, addMonths, addWeeks, format, isSameDay, isValid, startOfDay, startOfMonth, startOfWeek } from 'date-fns';
+import {
+  addDays,
+  addHours,
+  addMonths,
+  addWeeks,
+  format,
+  isSameDay,
+  isValid,
+  startOfDay,
+  startOfMonth,
+  startOfWeek,
+} from 'date-fns';
 import { router } from 'expo-router';
 
 import { companyQueryKeys, fetchCompanies } from '../../api/companies';
@@ -27,9 +41,9 @@ import {
 } from '../../api/schedules';
 import { DayAgenda } from '@/components/schedule/DayAgenda';
 import { MonthCalendar } from '@/components/schedule/MonthCalendar';
+import { WeekTimeGrid } from '@/components/schedule/WeekTimeGrid';
 import { ScheduleCard } from '../../components/schedule/ScheduleCard';
 import { ScheduleViewSwitcher } from '@/components/schedule/ScheduleViewSwitcher';
-import { WeekStrip } from '@/components/schedule/WeekStrip';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -44,15 +58,25 @@ import {
   type ScheduleViewMode,
   buildMonthGrid,
   buildScheduleDayMap,
-  buildWeekBuckets,
   groupSchedulesBySections,
-  parseScheduleDate,
+  parseScheduleEnd,
+  parseScheduleStart,
   toDateKey,
 } from '@/utils/scheduleCalendar';
 
 interface MonthCalendarCellModel extends MonthGridCell {
   isToday: boolean;
   isSelected: boolean;
+}
+
+type PickerScope = 'create' | 'edit';
+type PickerField = 'start' | 'end';
+type PickerMode = 'date' | 'time';
+
+interface PickerState {
+  scope: PickerScope;
+  field: PickerField;
+  mode: PickerMode;
 }
 
 const SCHEDULE_TYPES: Array<{ value: ScheduleType; label: string }> = [
@@ -70,31 +94,73 @@ const getErrorMessage = (error: unknown): string => {
   return '通信に失敗しました。時間をおいて再試行してください。';
 };
 
-const getDefaultDateTimeInput = (): { date: string; time: string } => {
-  const base = addHours(new Date(), 1);
+const getDefaultDateRange = (): { start: Date; end: Date } => {
+  const start = addHours(new Date(), 1);
+  const end = addHours(start, 1);
+  return { start, end };
+};
 
+const getDateRangeFromSchedule = (schedule: Schedule): { start: Date; end: Date; isAllDay: boolean } => {
+  const parsedStart = parseScheduleStart(schedule);
+  const parsedEnd = parseScheduleEnd(schedule);
+
+  const fallback = getDefaultDateRange();
   return {
-    date: format(base, 'yyyy-MM-dd'),
-    time: format(base, 'HH:mm'),
+    start: parsedStart ?? fallback.start,
+    end: parsedEnd ?? addHours(parsedStart ?? fallback.start, 1),
+    isAllDay: schedule.isAllDay,
   };
 };
 
-const getDateTimeInputFromSchedule = (scheduledAt: string): { date: string; time: string } => {
-  const parsed = parseScheduleDate(scheduledAt);
-  if (!parsed) {
-    return getDefaultDateTimeInput();
+const mergeDateTime = (current: Date, selected: Date, mode: PickerMode): Date => {
+  const merged = new Date(current);
+
+  if (mode === 'date') {
+    merged.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
+    return merged;
   }
 
-  return {
-    date: format(parsed, 'yyyy-MM-dd'),
-    time: format(parsed, 'HH:mm'),
-  };
+  merged.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+  return merged;
 };
+
+const validateRange = (startAt: Date, endAt: Date, isAllDay: boolean): string | null => {
+  if (!isValid(startAt) || !isValid(endAt)) {
+    return '日時の形式が不正です';
+  }
+
+  if (startAt.getTime() < Date.now()) {
+    return '開始時刻は現在以降を指定してください';
+  }
+
+  if (isAllDay) {
+    return null;
+  }
+
+  if (endAt.getTime() <= startAt.getTime()) {
+    return '終了時刻は開始時刻より後を指定してください';
+  }
+
+  if (!isSameDay(startAt, endAt)) {
+    return '時間指定の予定は同じ日付内で設定してください';
+  }
+
+  return null;
+};
+
+const normalizeAllDayRange = (date: Date): { start: Date; end: Date } => {
+  const start = startOfDay(date);
+  const end = addDays(start, 1);
+  return { start, end };
+};
+
+const formatDateLabel = (value: Date): string => format(value, 'yyyy-MM-dd');
+const formatTimeLabel = (value: Date): string => format(value, 'HH:mm');
 
 export default function SchedulesScreen() {
   const queryClient = useQueryClient();
   const initialDate = useMemo(() => startOfDay(new Date()), []);
-  const defaultDateTime = useMemo(() => getDefaultDateTimeInput(), []);
+  const defaultRange = useMemo(() => getDefaultDateRange(), []);
 
   const [viewMode, setViewMode] = useState<ScheduleViewMode>('month');
   const [selectedDate, setSelectedDate] = useState<Date>(initialDate);
@@ -110,14 +176,18 @@ export default function SchedulesScreen() {
   const [createCompanyId, setCreateCompanyId] = useState<string | null>(null);
   const [createType, setCreateType] = useState<ScheduleType>('interview');
   const [createTitle, setCreateTitle] = useState('');
-  const [createDateInput, setCreateDateInput] = useState(defaultDateTime.date);
-  const [createTimeInput, setCreateTimeInput] = useState(defaultDateTime.time);
+  const [createStartAt, setCreateStartAt] = useState(defaultRange.start);
+  const [createEndAt, setCreateEndAt] = useState(defaultRange.end);
+  const [createIsAllDay, setCreateIsAllDay] = useState(false);
 
   const [editCompanyId, setEditCompanyId] = useState<string | null>(null);
   const [editType, setEditType] = useState<ScheduleType>('interview');
   const [editTitle, setEditTitle] = useState('');
-  const [editDateInput, setEditDateInput] = useState(defaultDateTime.date);
-  const [editTimeInput, setEditTimeInput] = useState(defaultDateTime.time);
+  const [editStartAt, setEditStartAt] = useState(defaultRange.start);
+  const [editEndAt, setEditEndAt] = useState(defaultRange.end);
+  const [editIsAllDay, setEditIsAllDay] = useState(false);
+
+  const [pickerState, setPickerState] = useState<PickerState | null>(null);
 
   const schedulesQuery = useQuery({
     queryKey: scheduleQueryKeys.all,
@@ -133,11 +203,12 @@ export default function SchedulesScreen() {
     mutationFn: createSchedule,
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: scheduleQueryKeys.all });
-      const nextDateTime = getDefaultDateTimeInput();
+      const nextRange = getDefaultDateRange();
       setCreateType('interview');
       setCreateTitle('');
-      setCreateDateInput(nextDateTime.date);
-      setCreateTimeInput(nextDateTime.time);
+      setCreateStartAt(nextRange.start);
+      setCreateEndAt(nextRange.end);
+      setCreateIsAllDay(false);
       setIsCreateModalVisible(false);
     },
     onError: (error: unknown) => {
@@ -182,13 +253,8 @@ export default function SchedulesScreen() {
     }
   }, [companiesQuery.error, companiesQuery.isError]);
 
-  const companies = useMemo<Company[]>(() => {
-    return companiesQuery.data ?? [];
-  }, [companiesQuery.data]);
-
-  const schedules = useMemo<Schedule[]>(() => {
-    return schedulesQuery.data ?? [];
-  }, [schedulesQuery.data]);
+  const companies = useMemo<Company[]>(() => companiesQuery.data ?? [], [companiesQuery.data]);
+  const schedules = useMemo<Schedule[]>(() => schedulesQuery.data ?? [], [schedulesQuery.data]);
 
   useEffect(() => {
     if (!createCompanyId && companies.length > 0) {
@@ -199,37 +265,20 @@ export default function SchedulesScreen() {
     }
   }, [companies, createCompanyId]);
 
-  const groupedSections = useMemo<ScheduleSection[]>(() => {
-    return groupSchedulesBySections(schedules);
-  }, [schedules]);
-
+  const groupedSections = useMemo<ScheduleSection[]>(() => groupSchedulesBySections(schedules), [schedules]);
   const hasSchedules = groupedSections.some((section) => section.data.length > 0);
   const sections = hasSchedules ? groupedSections.filter((section) => section.data.length > 0) : [];
 
-  const schedulesByDay = useMemo<Map<string, Schedule[]>>(() => {
-    return buildScheduleDayMap(schedules);
-  }, [schedules]);
+  const schedulesByDay = useMemo<Map<string, Schedule[]>>(() => buildScheduleDayMap(schedules), [schedules]);
 
-  const weekBuckets = useMemo(() => {
-    return buildWeekBuckets(schedulesByDay);
-  }, [schedulesByDay]);
-
-  const selectedDayKey = useMemo(() => {
-    return toDateKey(selectedDate);
-  }, [selectedDate]);
-
-  const selectedDaySchedules = useMemo<Schedule[]>(() => {
-    return schedulesByDay.get(selectedDayKey) ?? [];
-  }, [schedulesByDay, selectedDayKey]);
-
-  const focusedWeekKey = useMemo(() => {
-    return toDateKey(focusedWeekStart);
-  }, [focusedWeekStart]);
+  const selectedDayKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
+  const selectedDaySchedules = useMemo<Schedule[]>(() => schedulesByDay.get(selectedDayKey) ?? [], [schedulesByDay, selectedDayKey]);
 
   const focusedWeekSchedules = useMemo<Schedule[]>(() => {
-    const selectedWeek = weekBuckets.find((bucket) => bucket.key === focusedWeekKey);
-    return selectedWeek?.schedules ?? [];
-  }, [focusedWeekKey, weekBuckets]);
+    return Array.from({ length: 7 }, (_, dayOffset) => toDateKey(addDays(focusedWeekStart, dayOffset))).flatMap(
+      (dayKey) => schedulesByDay.get(dayKey) ?? [],
+    );
+  }, [focusedWeekStart, schedulesByDay]);
 
   const monthCells = useMemo<MonthCalendarCellModel[]>(() => {
     const monthGrid = buildMonthGrid(focusedMonth, schedulesByDay);
@@ -277,12 +326,18 @@ export default function SchedulesScreen() {
   };
 
   const openCreateModal = (): void => {
-    const nextDateTime = getDefaultDateTimeInput();
+    const nextRange = getDefaultDateRange();
+    const start = viewMode === 'list' ? nextRange.start : new Date(selectedDate);
+    if (viewMode !== 'list') {
+      start.setHours(nextRange.start.getHours(), nextRange.start.getMinutes(), 0, 0);
+    }
 
     setCreateType('interview');
     setCreateTitle('');
-    setCreateTimeInput(nextDateTime.time);
-    setCreateDateInput(viewMode === 'list' ? nextDateTime.date : format(selectedDate, 'yyyy-MM-dd'));
+    setCreateIsAllDay(false);
+    setCreateStartAt(start);
+    setCreateEndAt(addHours(start, 1));
+    setPickerState(null);
     setIsCreateModalVisible(true);
   };
 
@@ -298,9 +353,13 @@ export default function SchedulesScreen() {
       return;
     }
 
-    const parsedDate = new Date(`${createDateInput}T${createTimeInput}:00`);
-    if (!isValid(parsedDate)) {
-      Alert.alert('入力エラー', '日時の形式が不正です');
+    const allDayRange = normalizeAllDayRange(createStartAt);
+    const startAt = createIsAllDay ? allDayRange.start : createStartAt;
+    const endAt = createIsAllDay ? allDayRange.end : createEndAt;
+
+    const validationError = validateRange(startAt, endAt, createIsAllDay);
+    if (validationError) {
+      Alert.alert('入力エラー', validationError);
       return;
     }
 
@@ -308,19 +367,23 @@ export default function SchedulesScreen() {
       companyId: createCompanyId,
       type: createType,
       title: trimmedTitle,
-      scheduledAt: parsedDate.toISOString(),
+      startAt: startAt.toISOString(),
+      endAt: endAt.toISOString(),
+      isAllDay: createIsAllDay,
     });
   };
 
   const openEditModal = (schedule: Schedule): void => {
-    const nextDateTime = getDateTimeInputFromSchedule(schedule.scheduledAt);
+    const range = getDateRangeFromSchedule(schedule);
 
     setSelectedSchedule(schedule);
     setEditCompanyId(schedule.companyId);
     setEditType(schedule.type);
     setEditTitle(schedule.title);
-    setEditDateInput(nextDateTime.date);
-    setEditTimeInput(nextDateTime.time);
+    setEditStartAt(range.start);
+    setEditEndAt(range.end);
+    setEditIsAllDay(range.isAllDay);
+    setPickerState(null);
     setIsEditModalVisible(true);
   };
 
@@ -331,6 +394,7 @@ export default function SchedulesScreen() {
 
     setIsEditModalVisible(false);
     setSelectedSchedule(null);
+    setPickerState(null);
   };
 
   const handleUpdateSchedule = async (): Promise<void> => {
@@ -344,9 +408,13 @@ export default function SchedulesScreen() {
       return;
     }
 
-    const parsedDate = new Date(`${editDateInput}T${editTimeInput}:00`);
-    if (!isValid(parsedDate)) {
-      Alert.alert('入力エラー', '日時の形式が不正です');
+    const allDayRange = normalizeAllDayRange(editStartAt);
+    const startAt = editIsAllDay ? allDayRange.start : editStartAt;
+    const endAt = editIsAllDay ? allDayRange.end : editEndAt;
+
+    const validationError = validateRange(startAt, endAt, editIsAllDay);
+    if (validationError) {
+      Alert.alert('入力エラー', validationError);
       return;
     }
 
@@ -355,7 +423,9 @@ export default function SchedulesScreen() {
       payload: {
         type: editType,
         title: trimmedTitle,
-        scheduledAt: parsedDate.toISOString(),
+        startAt: startAt.toISOString(),
+        endAt: endAt.toISOString(),
+        isAllDay: editIsAllDay,
         ...(editCompanyId ? { companyId: editCompanyId } : {}),
       },
     });
@@ -414,107 +484,185 @@ export default function SchedulesScreen() {
     setFocusedWeekStart(startOfWeek(nextSelected, { weekStartsOn: WEEK_STARTS_ON }));
   };
 
-  const renderListView = () => {
-    return (
-      <SectionList
-        sections={sections}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <ScheduleCard schedule={item} onLongPress={() => openEditModal(item)} />}
-        renderSectionHeader={({ section }) => <Text style={styles.sectionTitle}>{section.title}</Text>}
-        contentContainerStyle={styles.listContent}
-        stickySectionHeadersEnabled={false}
-        onRefresh={handleRefresh}
-        refreshing={isRefreshing}
-        ItemSeparatorComponent={() => <View style={styles.listGap} />}
-        SectionSeparatorComponent={() => <View style={styles.sectionGap} />}
-        ListEmptyComponent={
-          !hasSchedules ? (
-            <AppCard>
-              <EmptyState
-                title="スケジュールを追加してください"
-                description="＋ボタンから面接や締切を登録できます。"
-              />
-            </AppCard>
-          ) : null
+  const handleToggleCreateAllDay = (value: boolean): void => {
+    setCreateIsAllDay(value);
+    if (value) {
+      const normalized = normalizeAllDayRange(createStartAt);
+      setCreateStartAt(normalized.start);
+      setCreateEndAt(normalized.end);
+      return;
+    }
+
+    if (createEndAt.getTime() <= createStartAt.getTime() || !isSameDay(createStartAt, createEndAt)) {
+      setCreateEndAt(addHours(createStartAt, 1));
+    }
+  };
+
+  const handleToggleEditAllDay = (value: boolean): void => {
+    setEditIsAllDay(value);
+    if (value) {
+      const normalized = normalizeAllDayRange(editStartAt);
+      setEditStartAt(normalized.start);
+      setEditEndAt(normalized.end);
+      return;
+    }
+
+    if (editEndAt.getTime() <= editStartAt.getTime() || !isSameDay(editStartAt, editEndAt)) {
+      setEditEndAt(addHours(editStartAt, 1));
+    }
+  };
+
+  const openPicker = (scope: PickerScope, field: PickerField, mode: PickerMode): void => {
+    setPickerState({ scope, field, mode });
+  };
+
+  const getPickerValue = (state: PickerState): Date => {
+    if (state.scope === 'create') {
+      return state.field === 'start' ? createStartAt : createEndAt;
+    }
+
+    return state.field === 'start' ? editStartAt : editEndAt;
+  };
+
+  const applyPickerSelection = (state: PickerState, selected: Date): void => {
+    if (state.scope === 'create') {
+      const current = state.field === 'start' ? createStartAt : createEndAt;
+      const merged = mergeDateTime(current, selected, state.mode);
+
+      if (state.field === 'start') {
+        if (createIsAllDay) {
+          const normalized = normalizeAllDayRange(merged);
+          setCreateStartAt(normalized.start);
+          setCreateEndAt(normalized.end);
+          return;
         }
-      />
-    );
+
+        setCreateStartAt(merged);
+        if (merged.getTime() >= createEndAt.getTime()) {
+          setCreateEndAt(addHours(merged, 1));
+        }
+        return;
+      }
+
+      setCreateEndAt(merged);
+      return;
+    }
+
+    const current = state.field === 'start' ? editStartAt : editEndAt;
+    const merged = mergeDateTime(current, selected, state.mode);
+
+    if (state.field === 'start') {
+      if (editIsAllDay) {
+        const normalized = normalizeAllDayRange(merged);
+        setEditStartAt(normalized.start);
+        setEditEndAt(normalized.end);
+        return;
+      }
+
+      setEditStartAt(merged);
+      if (merged.getTime() >= editEndAt.getTime()) {
+        setEditEndAt(addHours(merged, 1));
+      }
+      return;
+    }
+
+    setEditEndAt(merged);
   };
 
-  const renderDayView = () => {
-    return (
-      <ScrollView
-        contentContainerStyle={styles.viewContent}
-        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => void handleRefresh()} />}
-      >
-        <DayAgenda
-          date={selectedDate}
-          schedules={selectedDaySchedules}
-          emptyTitle="この日の予定はありません"
-          emptyDescription="別の日を選択するか、＋ボタンから予定を追加してください。"
-          onLongPressSchedule={openEditModal}
-        />
-      </ScrollView>
-    );
+  const handlePickerChange = (event: DateTimePickerEvent, selected?: Date): void => {
+    const currentPicker = pickerState;
+    if (!currentPicker) {
+      return;
+    }
+
+    if (event.type === 'dismissed' || !selected) {
+      setPickerState(null);
+      return;
+    }
+
+    applyPickerSelection(currentPicker, selected);
+
+    // Close picker after selection for both iOS and Android to keep interaction consistent.
+    if (Platform.OS === 'android' || Platform.OS === 'ios') {
+      setPickerState(null);
+    }
   };
 
-  const renderWeekView = () => {
-    return (
-      <ScrollView
-        contentContainerStyle={styles.viewContent}
-        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => void handleRefresh()} />}
-      >
-        <WeekStrip
-          weekStart={focusedWeekStart}
-          selectedDate={selectedDate}
-          dayMap={schedulesByDay}
-          onSelectDate={handleSelectDate}
-          onPrevWeek={handlePrevWeek}
-          onNextWeek={handleNextWeek}
-        />
-
-        {focusedWeekSchedules.length === 0 ? (
+  const renderListView = () => (
+    <SectionList
+      sections={sections}
+      keyExtractor={(item) => item.id}
+      renderItem={({ item }) => <ScheduleCard schedule={item} onLongPress={() => openEditModal(item)} />}
+      renderSectionHeader={({ section }) => <Text style={styles.sectionTitle}>{section.title}</Text>}
+      contentContainerStyle={styles.listContent}
+      stickySectionHeadersEnabled={false}
+      onRefresh={handleRefresh}
+      refreshing={isRefreshing}
+      ItemSeparatorComponent={() => <View style={styles.listGap} />}
+      SectionSeparatorComponent={() => <View style={styles.sectionGap} />}
+      ListEmptyComponent={
+        !hasSchedules ? (
           <AppCard>
             <EmptyState
-              title="今週の予定はありません"
-              description="別の週へ移動するか、＋ボタンから予定を追加してください。"
+              title="スケジュールを追加してください"
+              description="＋ボタンから面接や締切を登録できます。"
             />
           </AppCard>
-        ) : null}
+        ) : null
+      }
+    />
+  );
 
-        <DayAgenda
-          date={selectedDate}
-          schedules={selectedDaySchedules}
-          emptyTitle="選択日の予定はありません"
-          emptyDescription="週上部の日付を切り替えると、日別の予定を確認できます。"
-          onLongPressSchedule={openEditModal}
-        />
-      </ScrollView>
-    );
-  };
+  const renderDayView = () => (
+    <ScrollView
+      contentContainerStyle={styles.viewContent}
+      refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => void handleRefresh()} />}
+    >
+      <DayAgenda
+        date={selectedDate}
+        schedules={selectedDaySchedules}
+        emptyTitle="この日の予定はありません"
+        emptyDescription="別の日を選択するか、＋ボタンから予定を追加してください。"
+        onLongPressSchedule={openEditModal}
+      />
+    </ScrollView>
+  );
 
-  const renderMonthView = () => {
-    return (
-      <ScrollView
-        contentContainerStyle={styles.viewContent}
-        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => void handleRefresh()} />}
-      >
-        <MonthCalendar
-          focusedMonth={focusedMonth}
-          cells={monthCells}
-          onSelectDate={openDayDetail}
-          onPrevMonth={handlePrevMonth}
-          onNextMonth={handleNextMonth}
-          onLongPressCell={(cell) => {
-            const firstSchedule = cell.schedules[0];
-            if (firstSchedule) {
-              openEditModal(firstSchedule);
-            }
-          }}
-        />
-      </ScrollView>
-    );
-  };
+  const renderWeekView = () => (
+    <ScrollView
+      contentContainerStyle={styles.viewContent}
+      refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => void handleRefresh()} />}
+    >
+      <WeekTimeGrid
+        weekStart={focusedWeekStart}
+        schedules={focusedWeekSchedules}
+        onPrevWeek={handlePrevWeek}
+        onNextWeek={handleNextWeek}
+        onLongPressSchedule={openEditModal}
+      />
+    </ScrollView>
+  );
+
+  const renderMonthView = () => (
+    <ScrollView
+      contentContainerStyle={styles.viewContent}
+      refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => void handleRefresh()} />}
+    >
+      <MonthCalendar
+        focusedMonth={focusedMonth}
+        cells={monthCells}
+        onSelectDate={openDayDetail}
+        onPrevMonth={handlePrevMonth}
+        onNextMonth={handleNextMonth}
+        onLongPressCell={(cell) => {
+          const firstSchedule = cell.schedules[0];
+          if (firstSchedule) {
+            openEditModal(firstSchedule);
+          }
+        }}
+      />
+    </ScrollView>
+  );
 
   const renderCurrentView = () => {
     if (viewMode === 'day') {
@@ -531,6 +679,73 @@ export default function SchedulesScreen() {
 
     return renderListView();
   };
+
+  const renderDateTimeFields = (
+    scope: PickerScope,
+    startAt: Date,
+    endAt: Date,
+    isAllDay: boolean,
+    disabled = false,
+  ) => (
+    <View style={styles.dateTimeFieldsWrap}>
+      <View style={styles.toggleRow}>
+        <Text style={styles.fieldLabel}>終日</Text>
+        <Switch
+          value={isAllDay}
+          onValueChange={scope === 'create' ? handleToggleCreateAllDay : handleToggleEditAllDay}
+          disabled={disabled}
+          trackColor={{ false: colors.borderStrong, true: colors.primarySoft }}
+          thumbColor={isAllDay ? colors.primary : '#FFFFFF'}
+        />
+      </View>
+
+      <View style={styles.selectorGroup}>
+        <Text style={styles.fieldLabel}>開始</Text>
+        <View style={styles.selectorRow}>
+          <Pressable
+            style={[styles.selectorButton, disabled && styles.selectorButtonDisabled]}
+            onPress={() => openPicker(scope, 'start', 'date')}
+            disabled={disabled}
+          >
+            <Text style={styles.selectorButtonText}>{formatDateLabel(startAt)}</Text>
+          </Pressable>
+          {!isAllDay ? (
+            <Pressable
+              style={[styles.selectorButton, disabled && styles.selectorButtonDisabled]}
+              onPress={() => openPicker(scope, 'start', 'time')}
+              disabled={disabled}
+            >
+              <Text style={styles.selectorButtonText}>{formatTimeLabel(startAt)}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+
+      {!isAllDay ? (
+        <View style={styles.selectorGroup}>
+          <Text style={styles.fieldLabel}>終了</Text>
+          <View style={styles.selectorRow}>
+            <Pressable
+              style={[styles.selectorButton, disabled && styles.selectorButtonDisabled]}
+              onPress={() => openPicker(scope, 'end', 'date')}
+              disabled={disabled}
+            >
+              <Text style={styles.selectorButtonText}>{formatDateLabel(endAt)}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.selectorButton, disabled && styles.selectorButtonDisabled]}
+              onPress={() => openPicker(scope, 'end', 'time')}
+              disabled={disabled}
+            >
+              <Text style={styles.selectorButtonText}>{formatTimeLabel(endAt)}</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : (
+        <Text style={styles.helperText}>終日予定は選択日の00:00-24:00として保存されます</Text>
+      )}
+    </View>
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -617,23 +832,7 @@ export default function SchedulesScreen() {
               style={styles.input}
             />
 
-            <Text style={styles.fieldLabel}>日時</Text>
-            <View style={styles.dateTimeRow}>
-              <TextInput
-                value={createDateInput}
-                onChangeText={setCreateDateInput}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={colors.muted}
-                style={[styles.input, styles.dateInput]}
-              />
-              <TextInput
-                value={createTimeInput}
-                onChangeText={setCreateTimeInput}
-                placeholder="HH:mm"
-                placeholderTextColor={colors.muted}
-                style={[styles.input, styles.timeInput]}
-              />
-            </View>
+            {renderDateTimeFields('create', createStartAt, createEndAt, createIsAllDay)}
 
             <View style={styles.modalActions}>
               <AppButton
@@ -713,25 +912,7 @@ export default function SchedulesScreen() {
                   editable={!isEditPending}
                 />
 
-                <Text style={styles.fieldLabel}>日時</Text>
-                <View style={styles.dateTimeRow}>
-                  <TextInput
-                    value={editDateInput}
-                    onChangeText={setEditDateInput}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor={colors.muted}
-                    style={[styles.input, styles.dateInput]}
-                    editable={!isEditPending}
-                  />
-                  <TextInput
-                    value={editTimeInput}
-                    onChangeText={setEditTimeInput}
-                    placeholder="HH:mm"
-                    placeholderTextColor={colors.muted}
-                    style={[styles.input, styles.timeInput]}
-                    editable={!isEditPending}
-                  />
-                </View>
+                {renderDateTimeFields('edit', editStartAt, editEndAt, editIsAllDay, isEditPending)}
 
                 <View style={styles.modalActions}>
                   <AppButton
@@ -764,6 +945,16 @@ export default function SchedulesScreen() {
           </View>
         </View>
       </Modal>
+
+      {pickerState ? (
+        <DateTimePicker
+          mode={pickerState.mode}
+          value={getPickerValue(pickerState)}
+          is24Hour
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={handlePickerChange}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -901,16 +1092,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     fontSize: 15,
   },
-  dateTimeRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  dateInput: {
-    flex: 2,
-  },
-  timeInput: {
-    flex: 1,
-  },
   helperText: {
     color: colors.muted,
     fontSize: 13,
@@ -924,5 +1105,38 @@ const styles = StyleSheet.create({
   },
   flexButton: {
     flex: 1,
+  },
+  dateTimeFieldsWrap: {
+    gap: 10,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  selectorGroup: {
+    gap: 6,
+  },
+  selectorRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  selectorButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+  },
+  selectorButtonDisabled: {
+    opacity: 0.6,
+  },
+  selectorButtonText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

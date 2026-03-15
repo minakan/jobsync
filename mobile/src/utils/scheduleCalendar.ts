@@ -48,9 +48,17 @@ export const toDateKey = (value: Date): string => {
   return format(startOfDay(value), 'yyyy-MM-dd');
 };
 
+export const parseScheduleStart = (schedule: Schedule): Date | null => {
+  return parseScheduleDate(schedule.startAt || schedule.scheduledAt);
+};
+
+export const parseScheduleEnd = (schedule: Schedule): Date | null => {
+  return parseScheduleDate(schedule.endAt || schedule.startAt || schedule.scheduledAt);
+};
+
 export const sortByScheduledAt = (left: Schedule, right: Schedule): number => {
-  const leftDate = parseScheduleDate(left.scheduledAt);
-  const rightDate = parseScheduleDate(right.scheduledAt);
+  const leftDate = parseScheduleStart(left);
+  const rightDate = parseScheduleStart(right);
 
   if (!leftDate && !rightDate) {
     return 0;
@@ -73,7 +81,7 @@ export const groupSchedulesBySections = (schedules: Schedule[]): ScheduleSection
   const later: Schedule[] = [];
 
   for (const schedule of schedules) {
-    const scheduleDate = parseScheduleDate(schedule.scheduledAt);
+    const scheduleDate = parseScheduleStart(schedule);
 
     if (!scheduleDate) {
       later.push(schedule);
@@ -104,7 +112,7 @@ export const buildScheduleDayMap = (schedules: Schedule[]): Map<string, Schedule
   const dayMap = new Map<string, Schedule[]>();
 
   for (const schedule of schedules) {
-    const scheduleDate = parseScheduleDate(schedule.scheduledAt);
+    const scheduleDate = parseScheduleStart(schedule);
     if (!scheduleDate) {
       continue;
     }

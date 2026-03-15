@@ -126,7 +126,17 @@ export default function HomeScreen() {
                 data={upcomingDeadlines}
                 keyExtractor={(item) => item.id}
                 renderItem={({ item }) => {
-                  const deadline = parseISO(item.scheduledAt);
+                  const deadlineStart = parseISO(item.startAt || item.scheduledAt);
+                  const deadlineEnd = parseISO(item.endAt || item.startAt || item.scheduledAt);
+                  const dateLabel = item.isAllDay
+                    ? isValid(deadlineStart)
+                      ? format(deadlineStart, 'M月d日(E) 終日', { locale: ja })
+                      : '日時が不正です'
+                    : isValid(deadlineStart) && isValid(deadlineEnd)
+                      ? `${format(deadlineStart, 'M月d日(E) HH:mm', { locale: ja })} - ${format(deadlineEnd, 'HH:mm', {
+                          locale: ja,
+                        })}`
+                      : '日時が不正です';
 
                   return (
                     <AppCard>
@@ -134,14 +144,10 @@ export default function HomeScreen() {
                         <Text style={styles.deadlineCompany} numberOfLines={1}>
                           {item.companyName}
                         </Text>
-                        <CountdownTimer scheduledAt={item.scheduledAt} />
+                        <CountdownTimer scheduledAt={item.isAllDay ? item.endAt : item.startAt} />
                       </View>
                       <Text style={styles.deadlineTitle}>{item.title}</Text>
-                      <Text style={styles.deadlineDate}>
-                        {isValid(deadline)
-                          ? format(deadline, 'M月d日(E) HH:mm', { locale: ja })
-                          : '日時が不正です'}
-                      </Text>
+                      <Text style={styles.deadlineDate}>{dateLabel}</Text>
                     </AppCard>
                   );
                 }}

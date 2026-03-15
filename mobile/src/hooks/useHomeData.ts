@@ -12,8 +12,8 @@ const parseDate = (value: string): Date | null => {
 };
 
 const sortByScheduledAt = (left: Schedule, right: Schedule): number => {
-  const leftDate = parseDate(left.scheduledAt);
-  const rightDate = parseDate(right.scheduledAt);
+  const leftDate = parseDate(left.startAt || left.scheduledAt);
+  const rightDate = parseDate(right.startAt || right.scheduledAt);
 
   if (!leftDate || !rightDate) {
     return 0;
@@ -50,7 +50,7 @@ export const useHomeData = () => {
   const todaySchedules = useMemo<Schedule[]>(() => {
     return schedules
       .filter((schedule) => {
-        const scheduledDate = parseDate(schedule.scheduledAt);
+        const scheduledDate = parseDate(schedule.startAt || schedule.scheduledAt);
         return Boolean(scheduledDate && isToday(scheduledDate));
       })
       .sort(sortByScheduledAt);
@@ -65,12 +65,13 @@ export const useHomeData = () => {
           return false;
         }
 
-        const scheduledDate = parseDate(schedule.scheduledAt);
-        if (!scheduledDate) {
+        const startDate = parseDate(schedule.startAt || schedule.scheduledAt);
+        if (!startDate) {
           return false;
         }
 
-        const hoursLeft = differenceInHours(scheduledDate, now);
+        const targetDate = schedule.isAllDay ? parseDate(schedule.endAt) ?? startDate : startDate;
+        const hoursLeft = differenceInHours(targetDate, now);
         return hoursLeft >= 0 && hoursLeft <= 72;
       })
       .sort(sortByScheduledAt);

@@ -29,6 +29,10 @@ class CompanyScheduleResponse(BaseModel):
     company_id: UUID | None
     type: ScheduleType
     title: str
+    start_at: datetime
+    end_at: datetime
+    is_all_day: bool
+    # legacy compatibility field
     scheduled_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

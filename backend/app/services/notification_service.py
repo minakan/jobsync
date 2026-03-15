@@ -95,10 +95,11 @@ class NotificationService:
         days_before=1: "🚨 明日がES締切です！" / "【{company}】明日{time}が締切です"
         面接の場合: "💼 明日は{company}の面接です" / "{time}〜 {location_or_online}"
         """
-        scheduled_at_jst = schedule.scheduled_at.astimezone(JST)
+        start_at_jst = schedule.start_at.astimezone(JST)
         company_name = _resolve_company_name(schedule)
-        time_label = scheduled_at_jst.strftime("%H:%M")
-        date_label = scheduled_at_jst.strftime("%m/%d")
+        time_label = start_at_jst.strftime("%H:%M")
+        date_label = start_at_jst.strftime("%m/%d")
+        all_day_label = "終日"
 
         if schedule.type == ScheduleType.INTERVIEW:
             if days_before <= 1:
@@ -106,8 +107,17 @@ class NotificationService:
             else:
                 title = f"💼 {company_name}の面接まで{days_before}日です"
 
-            location_or_online = schedule.location or ("オンライン" if schedule.online_url else "場所未定")
-            body = f"{time_label}〜 {location_or_online}"
+            if schedule.is_all_day:
+                body = f"{all_day_label} {schedule.location or ('オンライン' if schedule.online_url else '場所未定')}"
+            else:
+                location_or_online = schedule.location or ("オンライン" if schedule.online_url else "場所未定")
+                body = f"{time_label}〜 {location_or_online}"
+        elif schedule.is_all_day and days_before <= 1:
+            title = "🚨 明日がES締切です！"
+            body = f"【{company_name}】明日{all_day_label}が締切です"
+        elif schedule.is_all_day:
+            title = f"📝 ES締切まで{days_before}日！"
+            body = f"【{company_name}】{date_label}が{all_day_label}締切です"
         elif days_before <= 1:
             title = "🚨 明日がES締切です！"
             body = f"【{company_name}】明日{time_label}が締切です"

@@ -16,6 +16,12 @@ interface ScheduleApiModel {
   companyName?: string | null;
   title: string;
   type: string;
+  start_at?: string;
+  startAt?: string;
+  end_at?: string;
+  endAt?: string;
+  is_all_day?: boolean;
+  isAllDay?: boolean;
   scheduled_at?: string;
   scheduledAt?: string;
   location?: string | null;
@@ -30,7 +36,9 @@ interface ScheduleApiModel {
 export interface CreateSchedulePayload {
   companyId: string;
   type: Schedule['type'];
-  scheduledAt: string;
+  startAt: string;
+  endAt: string;
+  isAllDay: boolean;
   title: string;
   notes?: string;
   deadlineDate?: string;
@@ -39,7 +47,9 @@ export interface CreateSchedulePayload {
 export interface UpdateSchedulePayload {
   type?: ScheduleType;
   title?: string;
-  scheduledAt?: string;
+  startAt?: string;
+  endAt?: string;
+  isAllDay?: boolean;
   companyId?: string;
 }
 
@@ -67,6 +77,9 @@ const normalizeScheduleType = (value: string): Schedule['type'] => {
 };
 
 const normalizeSchedule = (schedule: ScheduleApiModel): Schedule => {
+  const startAt = schedule.startAt ?? schedule.start_at ?? schedule.scheduledAt ?? schedule.scheduled_at ?? '';
+  const endAt = schedule.endAt ?? schedule.end_at ?? startAt;
+
   return {
     id: schedule.id,
     userId: schedule.userId ?? schedule.user_id ?? '',
@@ -74,7 +87,10 @@ const normalizeSchedule = (schedule: ScheduleApiModel): Schedule => {
     companyName: schedule.companyName ?? schedule.company_name ?? '企業未設定',
     title: schedule.title,
     type: normalizeScheduleType(schedule.type),
-    scheduledAt: schedule.scheduledAt ?? schedule.scheduled_at ?? '',
+    startAt,
+    endAt,
+    isAllDay: Boolean(schedule.isAllDay ?? schedule.is_all_day ?? false),
+    scheduledAt: startAt,
     location: schedule.location ?? null,
     memo: schedule.memo ?? schedule.description ?? null,
     createdAt: schedule.createdAt ?? schedule.created_at ?? '',
@@ -95,7 +111,10 @@ export const createSchedule = async (payload: CreateSchedulePayload): Promise<Sc
   const response = await apiClient.post<ScheduleApiModel>('/schedules', {
     company_id: payload.companyId,
     type: payload.type,
-    scheduled_at: payload.scheduledAt,
+    start_at: payload.startAt,
+    end_at: payload.endAt,
+    is_all_day: payload.isAllDay,
+    scheduled_at: payload.startAt,
     title: payload.title,
     notes: payload.notes ?? null,
     deadline_date: payload.deadlineDate ?? null,
@@ -111,6 +130,9 @@ export const updateSchedule = async (
   const updatePayload: {
     type?: ScheduleType;
     title?: string;
+    start_at?: string;
+    end_at?: string;
+    is_all_day?: boolean;
     scheduled_at?: string;
     company_id?: string;
   } = {};
@@ -121,8 +143,15 @@ export const updateSchedule = async (
   if (payload.title !== undefined) {
     updatePayload.title = payload.title;
   }
-  if (payload.scheduledAt !== undefined) {
-    updatePayload.scheduled_at = payload.scheduledAt;
+  if (payload.startAt !== undefined) {
+    updatePayload.start_at = payload.startAt;
+    updatePayload.scheduled_at = payload.startAt;
+  }
+  if (payload.endAt !== undefined) {
+    updatePayload.end_at = payload.endAt;
+  }
+  if (payload.isAllDay !== undefined) {
+    updatePayload.is_all_day = payload.isAllDay;
   }
   if (payload.companyId !== undefined) {
     updatePayload.company_id = payload.companyId;

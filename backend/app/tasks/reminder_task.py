@@ -22,8 +22,8 @@ JST = ZoneInfo("Asia/Tokyo")
 def send_daily_reminders() -> dict[str, int]:
     """
     毎日実行。以下の対象スケジュールにリマインダーを送信:
-    - reminder_1day=True かつ scheduled_at が明日(JST) かつ reminder_sent_at IS NULL
-    - reminder_3day=True かつ scheduled_at が3日後(JST) かつ reminder_sent_at IS NULL
+    - reminder_1day=True かつ start_at が明日(JST) かつ reminder_sent_at IS NULL
+    - reminder_3day=True かつ start_at が3日後(JST) かつ reminder_sent_at IS NULL
     送信後: schedule.reminder_sent_at = now() を更新（重複送信防止）
     asyncio.run()でDB操作を実行
     戻り値: {"sent": n, "failed": m}
@@ -87,8 +87,8 @@ async def _load_reminder_targets(
         .where(
             flag_column.is_(True),
             Schedule.reminder_sent_at.is_(None),
-            Schedule.scheduled_at >= start_utc,
-            Schedule.scheduled_at < end_utc,
+            Schedule.start_at >= start_utc,
+            Schedule.start_at < end_utc,
             User.fcm_token.is_not(None),
             User.fcm_token != "",
         )

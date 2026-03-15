@@ -3,17 +3,20 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { addHours, format, isValid, startOfDay } from 'date-fns';
+import { addDays, addHours, format, isSameDay, isValid, startOfDay } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import { router, useLocalSearchParams } from 'expo-router';
 
@@ -32,7 +35,7 @@ import { SectionHeader } from '@/components/ui/SectionHeader';
 import { colors, radius, spacing } from '@/theme/tokens';
 import { type Company } from '@/types/company';
 import { type Schedule, type ScheduleType } from '@/types/schedule';
-import { buildScheduleDayMap, parseScheduleDate, toDateKey } from '@/utils/scheduleCalendar';
+import { buildScheduleDayMap, parseScheduleEnd, parseScheduleStart, toDateKey } from '@/utils/scheduleCalendar';
 
 const SCHEDULE_TYPES: Array<{ value: ScheduleType; label: string }> = [
   { value: 'es_deadline', label: 'ES締切' },
@@ -40,6 +43,14 @@ const SCHEDULE_TYPES: Array<{ value: ScheduleType; label: string }> = [
   { value: 'exam', label: '試験' },
   { value: 'event', label: 'イベント' },
 ];
+
+type PickerField = 'start' | 'end';
+type PickerMode = 'date' | 'time';
+
+interface PickerState {
+  field: PickerField;
+  mode: PickerMode;
+}
 
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error && error.message.length > 0) {
@@ -49,25 +60,45 @@ const getErrorMessage = (error: unknown): string => {
   return '通信に失敗しました。時間をおいて再試行してください。';
 };
 
-const getDefaultDateTimeInput = (): { date: string; time: string } => {
-  const base = addHours(new Date(), 1);
-
-  return {
-    date: format(base, 'yyyy-MM-dd'),
-    time: format(base, 'HH:mm'),
-  };
+const normalizeAllDayRange = (date: Date): { start: Date; end: Date } => {
+  const start = startOfDay(date);
+  const end = addDays(start, 1);
+  return { start, end };
 };
 
-const getDateTimeInputFromSchedule = (scheduledAt: string): { date: string; time: string } => {
-  const parsed = parseScheduleDate(scheduledAt);
-  if (!parsed) {
-    return getDefaultDateTimeInput();
+const validateRange = (startAt: Date, endAt: Date, isAllDay: boolean): string | null => {
+  if (!isValid(startAt) || !isValid(endAt)) {
+    return '日時の形式が不正です';
   }
 
-  return {
-    date: format(parsed, 'yyyy-MM-dd'),
-    time: format(parsed, 'HH:mm'),
-  };
+  if (startAt.getTime() < Date.now()) {
+    return '開始時刻は現在以降を指定してください';
+  }
+
+  if (isAllDay) {
+    return null;
+  }
+
+  if (endAt.getTime() <= startAt.getTime()) {
+    return '終了時刻は開始時刻より後を指定してください';
+  }
+
+  if (!isSameDay(startAt, endAt)) {
+    return '時間指定の予定は同じ日付内で設定してください';
+  }
+
+  return null;
+};
+
+const mergeDateTime = (current: Date, selected: Date, mode: PickerMode): Date => {
+  const merged = new Date(current);
+  if (mode === 'date') {
+    merged.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
+    return merged;
+  }
+
+  merged.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+  return merged;
 };
 
 const getDateFromParam = (dateKey: string | string[] | undefined): Date => {
@@ -87,7 +118,6 @@ const getDateFromParam = (dateKey: string | string[] | undefined): Date => {
 export default function ScheduleDayDetailScreen() {
   const params = useLocalSearchParams<{ dateKey?: string | string[] }>();
   const queryClient = useQueryClient();
-  const defaultDateTime = useMemo(() => getDefaultDateTimeInput(), []);
 
   const targetDate = useMemo(() => getDateFromParam(params.dateKey), [params.dateKey]);
   const targetDayKey = useMemo(() => toDateKey(targetDate), [targetDate]);
@@ -97,8 +127,10 @@ export default function ScheduleDayDetailScreen() {
   const [editCompanyId, setEditCompanyId] = useState<string | null>(null);
   const [editType, setEditType] = useState<ScheduleType>('interview');
   const [editTitle, setEditTitle] = useState('');
-  const [editDateInput, setEditDateInput] = useState(defaultDateTime.date);
-  const [editTimeInput, setEditTimeInput] = useState(defaultDateTime.time);
+  const [editStartAt, setEditStartAt] = useState(addHours(new Date(), 1));
+  const [editEndAt, setEditEndAt] = useState(addHours(new Date(), 2));
+  const [editIsAllDay, setEditIsAllDay] = useState(false);
+  const [pickerState, setPickerState] = useState<PickerState | null>(null);
 
   const schedulesQuery = useQuery({
     queryKey: scheduleQueryKeys.all,
@@ -117,6 +149,7 @@ export default function ScheduleDayDetailScreen() {
       await queryClient.invalidateQueries({ queryKey: scheduleQueryKeys.all });
       setSelectedSchedule(null);
       setIsEditModalVisible(false);
+      setPickerState(null);
     },
     onError: (error: unknown) => {
       Alert.alert('スケジュール更新エラー', getErrorMessage(error));
@@ -129,6 +162,7 @@ export default function ScheduleDayDetailScreen() {
       await queryClient.invalidateQueries({ queryKey: scheduleQueryKeys.all });
       setSelectedSchedule(null);
       setIsEditModalVisible(false);
+      setPickerState(null);
     },
     onError: (error: unknown) => {
       Alert.alert('スケジュール削除エラー', getErrorMessage(error));
@@ -147,21 +181,12 @@ export default function ScheduleDayDetailScreen() {
     }
   }, [companiesQuery.error, companiesQuery.isError]);
 
-  const companies = useMemo<Company[]>(() => {
-    return companiesQuery.data ?? [];
-  }, [companiesQuery.data]);
+  const companies = useMemo<Company[]>(() => companiesQuery.data ?? [], [companiesQuery.data]);
+  const schedules = useMemo<Schedule[]>(() => schedulesQuery.data ?? [], [schedulesQuery.data]);
 
-  const schedules = useMemo<Schedule[]>(() => {
-    return schedulesQuery.data ?? [];
-  }, [schedulesQuery.data]);
+  const schedulesByDay = useMemo(() => buildScheduleDayMap(schedules), [schedules]);
 
-  const schedulesByDay = useMemo(() => {
-    return buildScheduleDayMap(schedules);
-  }, [schedules]);
-
-  const daySchedules = useMemo<Schedule[]>(() => {
-    return schedulesByDay.get(targetDayKey) ?? [];
-  }, [schedulesByDay, targetDayKey]);
+  const daySchedules = useMemo<Schedule[]>(() => schedulesByDay.get(targetDayKey) ?? [], [schedulesByDay, targetDayKey]);
 
   const isEditPending = updateScheduleMutation.isPending || deleteScheduleMutation.isPending;
   const isRefreshing = schedulesQuery.isRefetching || companiesQuery.isRefetching;
@@ -171,14 +196,17 @@ export default function ScheduleDayDetailScreen() {
   };
 
   const openEditModal = (schedule: Schedule): void => {
-    const nextDateTime = getDateTimeInputFromSchedule(schedule.scheduledAt);
+    const start = parseScheduleStart(schedule) ?? addHours(new Date(), 1);
+    const end = parseScheduleEnd(schedule) ?? addHours(start, 1);
 
     setSelectedSchedule(schedule);
     setEditCompanyId(schedule.companyId);
     setEditType(schedule.type);
     setEditTitle(schedule.title);
-    setEditDateInput(nextDateTime.date);
-    setEditTimeInput(nextDateTime.time);
+    setEditStartAt(start);
+    setEditEndAt(end);
+    setEditIsAllDay(schedule.isAllDay);
+    setPickerState(null);
     setIsEditModalVisible(true);
   };
 
@@ -189,6 +217,7 @@ export default function ScheduleDayDetailScreen() {
 
     setIsEditModalVisible(false);
     setSelectedSchedule(null);
+    setPickerState(null);
   };
 
   const handleUpdateSchedule = async (): Promise<void> => {
@@ -202,9 +231,13 @@ export default function ScheduleDayDetailScreen() {
       return;
     }
 
-    const parsedDate = new Date(`${editDateInput}T${editTimeInput}:00`);
-    if (!isValid(parsedDate)) {
-      Alert.alert('入力エラー', '日時の形式が不正です');
+    const allDayRange = normalizeAllDayRange(editStartAt);
+    const startAt = editIsAllDay ? allDayRange.start : editStartAt;
+    const endAt = editIsAllDay ? allDayRange.end : editEndAt;
+
+    const validationError = validateRange(startAt, endAt, editIsAllDay);
+    if (validationError) {
+      Alert.alert('入力エラー', validationError);
       return;
     }
 
@@ -213,7 +246,9 @@ export default function ScheduleDayDetailScreen() {
       payload: {
         type: editType,
         title: trimmedTitle,
-        scheduledAt: parsedDate.toISOString(),
+        startAt: startAt.toISOString(),
+        endAt: endAt.toISOString(),
+        isAllDay: editIsAllDay,
         ...(editCompanyId ? { companyId: editCompanyId } : {}),
       },
     });
@@ -238,6 +273,66 @@ export default function ScheduleDayDetailScreen() {
         },
       },
     ]);
+  };
+
+  const handleToggleAllDay = (value: boolean): void => {
+    setEditIsAllDay(value);
+    if (value) {
+      const normalized = normalizeAllDayRange(editStartAt);
+      setEditStartAt(normalized.start);
+      setEditEndAt(normalized.end);
+      return;
+    }
+
+    if (editEndAt.getTime() <= editStartAt.getTime() || !isSameDay(editStartAt, editEndAt)) {
+      setEditEndAt(addHours(editStartAt, 1));
+    }
+  };
+
+  const openPicker = (field: PickerField, mode: PickerMode): void => {
+    setPickerState({ field, mode });
+  };
+
+  const getPickerValue = (): Date => {
+    if (!pickerState) {
+      return editStartAt;
+    }
+
+    return pickerState.field === 'start' ? editStartAt : editEndAt;
+  };
+
+  const handlePickerChange = (event: DateTimePickerEvent, selected?: Date): void => {
+    const activePicker = pickerState;
+    if (!activePicker) {
+      return;
+    }
+
+    if (event.type === 'dismissed' || !selected) {
+      setPickerState(null);
+      return;
+    }
+
+    const current = activePicker.field === 'start' ? editStartAt : editEndAt;
+    const merged = mergeDateTime(current, selected, activePicker.mode);
+
+    if (activePicker.field === 'start') {
+      if (editIsAllDay) {
+        const normalized = normalizeAllDayRange(merged);
+        setEditStartAt(normalized.start);
+        setEditEndAt(normalized.end);
+      } else {
+        setEditStartAt(merged);
+        if (merged.getTime() >= editEndAt.getTime()) {
+          setEditEndAt(addHours(merged, 1));
+        }
+      }
+    } else {
+      setEditEndAt(merged);
+    }
+
+    if (Platform.OS === 'android' || Platform.OS === 'ios') {
+      setPickerState(null);
+    }
   };
 
   return (
@@ -272,8 +367,13 @@ export default function ScheduleDayDetailScreen() {
           ) : (
             <View style={styles.timelineList}>
               {daySchedules.map((schedule) => {
-                const parsedDate = parseScheduleDate(schedule.scheduledAt);
-                const timeLabel = parsedDate ? format(parsedDate, 'HH:mm') : '--:--';
+                const start = parseScheduleStart(schedule);
+                const end = parseScheduleEnd(schedule);
+                const timeLabel = schedule.isAllDay
+                  ? '終日'
+                  : start && end
+                    ? `${format(start, 'HH:mm')}-${format(end, 'HH:mm')}`
+                    : '--:--';
                 const typeMeta = SCHEDULE_TYPE_META[schedule.type];
 
                 return (
@@ -366,25 +466,62 @@ export default function ScheduleDayDetailScreen() {
                   editable={!isEditPending}
                 />
 
-                <Text style={styles.fieldLabel}>日時</Text>
-                <View style={styles.dateTimeRow}>
-                  <TextInput
-                    value={editDateInput}
-                    onChangeText={setEditDateInput}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor={colors.muted}
-                    style={[styles.input, styles.dateInput]}
-                    editable={!isEditPending}
-                  />
-                  <TextInput
-                    value={editTimeInput}
-                    onChangeText={setEditTimeInput}
-                    placeholder="HH:mm"
-                    placeholderTextColor={colors.muted}
-                    style={[styles.input, styles.timeInput]}
-                    editable={!isEditPending}
+                <View style={styles.toggleRow}>
+                  <Text style={styles.fieldLabel}>終日</Text>
+                  <Switch
+                    value={editIsAllDay}
+                    onValueChange={handleToggleAllDay}
+                    disabled={isEditPending}
+                    trackColor={{ false: colors.borderStrong, true: colors.primarySoft }}
+                    thumbColor={editIsAllDay ? colors.primary : '#FFFFFF'}
                   />
                 </View>
+
+                <View style={styles.selectorGroup}>
+                  <Text style={styles.fieldLabel}>開始</Text>
+                  <View style={styles.selectorRow}>
+                    <Pressable
+                      style={[styles.selectorButton, isEditPending && styles.selectorButtonDisabled]}
+                      onPress={() => openPicker('start', 'date')}
+                      disabled={isEditPending}
+                    >
+                      <Text style={styles.selectorButtonText}>{format(editStartAt, 'yyyy-MM-dd')}</Text>
+                    </Pressable>
+                    {!editIsAllDay ? (
+                      <Pressable
+                        style={[styles.selectorButton, isEditPending && styles.selectorButtonDisabled]}
+                        onPress={() => openPicker('start', 'time')}
+                        disabled={isEditPending}
+                      >
+                        <Text style={styles.selectorButtonText}>{format(editStartAt, 'HH:mm')}</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </View>
+
+                {!editIsAllDay ? (
+                  <View style={styles.selectorGroup}>
+                    <Text style={styles.fieldLabel}>終了</Text>
+                    <View style={styles.selectorRow}>
+                      <Pressable
+                        style={[styles.selectorButton, isEditPending && styles.selectorButtonDisabled]}
+                        onPress={() => openPicker('end', 'date')}
+                        disabled={isEditPending}
+                      >
+                        <Text style={styles.selectorButtonText}>{format(editEndAt, 'yyyy-MM-dd')}</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.selectorButton, isEditPending && styles.selectorButtonDisabled]}
+                        onPress={() => openPicker('end', 'time')}
+                        disabled={isEditPending}
+                      >
+                        <Text style={styles.selectorButtonText}>{format(editEndAt, 'HH:mm')}</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : (
+                  <Text style={styles.helperText}>終日予定は選択日の00:00-24:00として保存されます</Text>
+                )}
 
                 <View style={styles.modalActions}>
                   <AppButton
@@ -417,6 +554,16 @@ export default function ScheduleDayDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      {pickerState ? (
+        <DateTimePicker
+          mode={pickerState.mode}
+          value={getPickerValue()}
+          is24Hour
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={handlePickerChange}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -484,8 +631,8 @@ const styles = StyleSheet.create({
     opacity: 0.86,
   },
   timeLabel: {
-    width: 46,
-    fontSize: 18,
+    width: 72,
+    fontSize: 15,
     fontWeight: '800',
     color: colors.primaryStrong,
     lineHeight: 22,
@@ -587,16 +734,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     fontSize: 15,
   },
-  dateTimeRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  dateInput: {
-    flex: 2,
-  },
-  timeInput: {
-    flex: 1,
-  },
   modalActions: {
     flexDirection: 'row',
     gap: 10,
@@ -604,5 +741,41 @@ const styles = StyleSheet.create({
   },
   flexButton: {
     flex: 1,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  selectorGroup: {
+    gap: 6,
+  },
+  selectorRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  selectorButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+  },
+  selectorButtonDisabled: {
+    opacity: 0.6,
+  },
+  selectorButtonText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  helperText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '500',
+    paddingVertical: 6,
   },
 });

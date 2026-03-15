@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -31,6 +31,7 @@ class Schedule(BaseModel):
     __tablename__ = "schedules"
     __table_args__ = (
         Index("ix_schedules_user_id_scheduled_at", "user_id", "scheduled_at"),
+        Index("ix_schedules_user_id_start_at", "user_id", "start_at"),
     )
 
     user_id: Mapped[UUID] = mapped_column(
@@ -49,7 +50,16 @@ class Schedule(BaseModel):
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # legacy compatibility field (same value as start_at)
     scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_all_day: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     online_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     reminder_1day: Mapped[bool] = mapped_column(
@@ -74,3 +84,23 @@ class Schedule(BaseModel):
     user: Mapped[User] = relationship(back_populates="schedules")
     company: Mapped[Company | None] = relationship(back_populates="schedules")
     source_email: Mapped[Email | None] = relationship(back_populates="schedules")
+
+    def __init__(self, **kwargs: object) -> None:
+        # Backward-compatible construction for legacy callers that only pass scheduled_at.
+        scheduled_at = kwargs.get("scheduled_at")
+        start_at = kwargs.get("start_at")
+
+        if start_at is None and isinstance(scheduled_at, datetime):
+            kwargs["start_at"] = scheduled_at
+            start_at = scheduled_at
+
+        if kwargs.get("end_at") is None and isinstance(start_at, datetime):
+            kwargs["end_at"] = start_at + timedelta(hours=1)
+
+        if "is_all_day" not in kwargs:
+            kwargs["is_all_day"] = False
+
+        if kwargs.get("scheduled_at") is None and isinstance(start_at, datetime):
+            kwargs["scheduled_at"] = start_at
+
+        super().__init__(**kwargs)

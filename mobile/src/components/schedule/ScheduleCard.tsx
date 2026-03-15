@@ -17,10 +17,22 @@ interface ScheduleCardProps {
 export const ScheduleCard = ({ schedule, showCountdown = true, onLongPress }: ScheduleCardProps) => {
   const typeStyle = SCHEDULE_TYPE_META[schedule.type];
 
-  const scheduledDate = parseISO(schedule.scheduledAt);
-  const isDateValid = isValid(scheduledDate);
-  const hoursToEvent = isDateValid ? differenceInHours(scheduledDate, new Date()) : -1;
+  const startDate = parseISO(schedule.startAt || schedule.scheduledAt);
+  const endDate = parseISO(schedule.endAt || schedule.startAt || schedule.scheduledAt);
+  const isStartValid = isValid(startDate);
+  const isEndValid = isValid(endDate);
+  const countdownTarget = schedule.isAllDay ? endDate : startDate;
+  const isDateValid = isStartValid && isEndValid;
+  const hoursToEvent = isDateValid ? differenceInHours(countdownTarget, new Date()) : -1;
   const shouldShowCountdown = showCountdown && isDateValid && hoursToEvent <= 72 && hoursToEvent >= 0;
+
+  const dateLabel = schedule.isAllDay
+    ? isStartValid
+      ? `${format(startDate, 'M月d日(E)', { locale: ja })} 終日`
+      : '日時が不正です'
+    : isDateValid
+      ? `${format(startDate, 'M月d日(E) HH:mm', { locale: ja })} - ${format(endDate, 'HH:mm', { locale: ja })}`
+      : '日時が不正です';
 
   return (
     <Pressable onLongPress={onLongPress} delayLongPress={280}>
@@ -37,11 +49,11 @@ export const ScheduleCard = ({ schedule, showCountdown = true, onLongPress }: Sc
 
           <Text style={styles.title}>{schedule.title}</Text>
 
-          <Text style={styles.dateLabel}>
-            {isDateValid ? format(scheduledDate, 'M月d日(E) HH:mm', { locale: ja }) : '日時が不正です'}
-          </Text>
+          <Text style={styles.dateLabel}>{dateLabel}</Text>
 
-          {shouldShowCountdown ? <CountdownTimer scheduledAt={schedule.scheduledAt} /> : null}
+          {shouldShowCountdown ? (
+            <CountdownTimer scheduledAt={schedule.isAllDay ? schedule.endAt : schedule.startAt} />
+          ) : null}
         </View>
       )}
     </Pressable>
