@@ -1,5 +1,6 @@
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
+import messaging from '@react-native-firebase/messaging';
 import { Platform } from 'react-native';
 
 const ANDROID_CHANNEL_ID = 'default';
@@ -36,7 +37,7 @@ const ensureAndroidChannel = async (): Promise<void> => {
 
 export async function registerForPushNotifications(): Promise<string | null> {
   if (!Device.isDevice) {
-    console.info('Push token registration skipped because a physical device is required.');
+    console.info('Push token registration skipped: physical device required.');
     return null;
   }
 
@@ -47,21 +48,13 @@ export async function registerForPushNotifications(): Promise<string | null> {
 
   try {
     await ensureAndroidChannel();
-    const token = await Notifications.getDevicePushTokenAsync();
-
-    // Backend sends with firebase_admin.messaging, so an FCM registration token is required.
-    if (token.type !== 'fcm') {
-      console.warn(`Unsupported native push token type: ${token.type}`);
+    const token = await messaging().getToken();
+    if (!token || token.trim().length === 0) {
       return null;
     }
-
-    if (typeof token.data !== 'string' || token.data.trim().length === 0) {
-      return null;
-    }
-
-    return token.data;
+    return token;
   } catch (error) {
-    console.error('Failed to get native push token', error);
+    console.error('Failed to get FCM token', error);
     return null;
   }
 }
