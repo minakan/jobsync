@@ -266,6 +266,294 @@ pytest tests/test_inbound_webhook.py -v
 
 ---
 
+## Prompt 5 — アカウント削除（Account Deletion）
+
+### ブランチ
+```
+git checkout -b feature/account-deletion
+```
+
+### 背景
+現在 `POST /api/v1/auth/logout` は JWT がステートレスなため実質 no-op。
+`DELETE /api/v1/users/me` エンドポイントは未実装で、設定画面にも削除 UI がない。
+User モデルには `deleted_at` / `is_active` フィールドが存在しない。
+このプロンプトでは、アカウント完全削除（ハード削除 + カスケード）をバックエンドとモバイルの両方で実装する。
+
+### 参照すべき既存ファイル
+- `backend/app/api/v1/auth.py` — ログアウトエンドポイント（L219-225）、`get_current_user` 依存
+- `backend/app/models/user.py` — User モデル（cascade delete 設定確認）
+- `backend/app/schemas/user.py` — レスポンス型
+- `mobile/src/app/(tabs)/settings.tsx` — ログアウトボタン実装（参考）
+- `mobile/src/store/authStore.ts` — Zustand auth ストア（`clearAuth` などのアクション確認）
+- `mobile/src/api/auth.ts` — 認証関連 API 呼び出し
+
+### タスク一覧
+
+#### 1. バックエンド: アカウント削除エンドポイント (`backend/app/api/v1/auth.py`)
+- `DELETE /api/v1/auth/me` エンドポイントを追加
+  ```python
+  @router.delete("/me", status_code=204)
+  async def delete_account(
+      current_user: User = Depends(get_current_user),
+      db: AsyncSession = Depends(get_db),
+  ) -> None:
+  ```
+- `db.delete(current_user)` → `await db.commit()` でハード削除
+- User モデルの relationship に `cascade="all, delete-orphan"` が設定されていることを確認し、不足があれば `backend/app/models/user.py` に追記
+- 削除後は 204 No Content を返す
+
+#### 2. バックエンド: テスト (`backend/tests/test_auth.py` または新規 `test_account_deletion.py`)
+- 認証済みユーザーが `DELETE /api/v1/auth/me` を呼ぶと 204 が返ること
+- 削除後、同じ JWT で `GET /api/v1/users/me` を呼ぶと 401 になること
+- 関連レコード（Company, Schedule など）もカスケード削除されること
+
+#### 3. モバイル: API 層 (`mobile/src/api/auth.ts`)
+- `deleteAccount(): Promise<void>` 関数を追加
+  - `DELETE /auth/me` を呼び出す
+
+#### 4. モバイル: 設定画面 (`mobile/src/app/(tabs)/settings.tsx`)
+- 「アカウントを削除する」ボタンを画面下部（ログアウトボタンの下）に追加
+- ボタンカラー: `#FF3B30`（danger red）
+- タップ時に `Alert.alert` で2段階確認:
+  - 第1確認: 「本当に削除しますか？この操作は取り消せません。」→「削除する」/「キャンセル」
+  - 「削除する」タップ後 `deleteAccount()` を呼び出す
+- 成功後: `authStore` の `clearAuth()` を呼び、ログイン画面にリダイレクト（`router.replace('/login')` 相当）
+- ロード中はボタンを `disabled` + `ActivityIndicator`
+- エラー時は `Alert.alert` でメッセージ表示
+
+### 受け入れ条件
+- [ ] `DELETE /api/v1/auth/me` が 204 を返し DB からユーザーが削除される
+- [ ] 関連する Company / Schedule / Email もカスケード削除される
+- [ ] 削除後に同 JWT でのアクセスが 401 になる
+- [ ] 設定画面に削除ボタンが表示される
+- [ ] 2段階確認ダイアログが動作する
+- [ ] `pytest tests/test_account_deletion.py -v` が PASSED
+- [ ] TypeScript エラーなし
+
+### 注意事項
+- ハード削除のため **元に戻せない**。確認ダイアログは2段階必須
+- JWT はステートレスなため削除後もトークンは数分有効だが、DBにユーザーが存在しないため `get_current_user` が 401 を返す設計で OK
+- フロントエンドは削除成功後に即座にストアをクリアしてログイン画面へ遷移する
+
+---
+
+## Prompt 6 — プッシュ通知 FCM 設定（Push Notifications）
+
+### ブランチ
+```
+git checkout -b feature/push-notifications
+```
+
+### 背景
+`backend/app/tasks/reminder_task.py` に FCM 送信ロジックは実装済みだが、
+`backend/.env` の `FIREBASE_CREDENTIALS_JSON={}` が空のため通知は送信されない。
+モバイル側にも FCM トークン取得・登録フローが存在しない。
+このプロンプトでは、モバイルの FCM トークン登録から通知受信UIまでを完成させる。
+
+### 参照すべき既存ファイル
+- `backend/app/tasks/reminder_task.py` — FCM 送信実装（`firebase_admin.messaging`）
+- `backend/app/models/user.py` — `fcm_token: str | None` フィールド
+- `backend/app/api/v1/users.py` — `PATCH /users/me` が `fcm_token` を受け付けるか確認
+- `mobile/src/store/authStore.ts` — ログイン後の処理
+- `mobile/package.json` — 現在インストール済みのパッケージ確認
+
+### タスク一覧
+
+#### 1. バックエンド: FCM トークン更新エンドポイント確認・追加
+- `backend/app/api/v1/users.py` に `PATCH /api/v1/users/me/fcm-token` がなければ追加:
+  ```python
+  class FCMTokenUpdate(BaseModel):
+      fcm_token: str
+
+  @router.patch("/me/fcm-token", status_code=204)
+  async def update_fcm_token(
+      body: FCMTokenUpdate,
+      current_user: User = Depends(get_current_user),
+      db: AsyncSession = Depends(get_db),
+  ) -> None:
+  ```
+- `current_user.fcm_token = body.fcm_token` → `await db.commit()`
+
+#### 2. モバイル: Expo Notifications セットアップ
+- `expo-notifications` と `expo-device` が `package.json` になければ `npx expo install expo-notifications expo-device` を実行
+- `mobile/src/utils/notifications.ts` を新規作成:
+  ```typescript
+  export async function registerForPushNotifications(): Promise<string | null>
+  ```
+  - `expo-device` で実機確認（シミュレーターでは null を返す）
+  - `Notifications.requestPermissionsAsync()` でパーミッション要求
+  - `Notifications.getExpoPushTokenAsync()` で Expo Push Token 取得
+  - **注意**: `reminder_task.py` が `firebase_admin.messaging` を使っているため、FCM ネイティブトークン (`Notifications.getDevicePushTokenAsync()`) が必要か Expo Push Token で十分かを `reminder_task.py` の実装を読んで判断すること
+
+#### 3. モバイル: ログイン後のトークン登録 (`mobile/src/store/authStore.ts` または認証コールバック)
+- ログイン成功後（`setAuth` 呼び出し後）に `registerForPushNotifications()` を呼ぶ
+- 取得したトークンを `PATCH /api/v1/users/me/fcm-token` に送信する `updateFCMToken(token)` を `mobile/src/api/users.ts` に追加
+
+#### 4. モバイル: フォアグラウンド通知ハンドラ (`mobile/src/app/_layout.tsx`)
+- `Notifications.addNotificationReceivedListener` でフォアグラウンド通知をハンドル
+- 通知をタップしたとき（`addNotificationResponseReceivedListener`）に関連スケジュール画面へ遷移
+
+#### 5. Firebase セットアップ手順書 (`docs/firebase-setup.md`)
+以下の手順をまとめた Markdown を作成:
+```
+1. Firebase Console (https://console.firebase.google.com/) でプロジェクト作成
+2. Android/iOS アプリを登録
+3. サービスアカウントキー (JSON) をダウンロード
+4. backend/.env の FIREBASE_CREDENTIALS_JSON に JSON 文字列を設定
+5. mobile/app.json に google-services.json / GoogleService-Info.plist の設定
+6. 動作確認: reminder_task を手動で呼び出してテスト通知を確認
+```
+
+### 受け入れ条件
+- [ ] `PATCH /api/v1/users/me/fcm-token` が 204 を返す
+- [ ] ログイン後に FCM トークンが自動取得・登録される
+- [ ] `docs/firebase-setup.md` に Firebase 設定手順が記載されている
+- [ ] フォアグラウンドでも通知が受信できる
+- [ ] TypeScript エラーなし（`npx tsc --noEmit`）
+
+### 注意事項
+- Firebase 認証情報（`FIREBASE_CREDENTIALS_JSON`）は実際の値を `.env` に記載する必要があり、このプロンプトではコード実装のみ行い、Firebase Console でのプロジェクト作成は手順書に委ねる
+- `FIREBASE_CREDENTIALS_JSON={}` の場合、`reminder_task.py` が `firebase_admin.initialize_app` でエラーにならないよう、`FIREBASE_CREDENTIALS_JSON` が空オブジェクトのときは FCM 送信をスキップする guard を `reminder_task.py` に追加すること
+
+---
+
+## Prompt 7 — 企業ステータス履歴タイムライン（Company Status History）
+
+### ブランチ
+```
+git checkout -b feature/company-status-history
+```
+
+### 背景
+Company モデルの `status_history` JSONB フィールドには、ステータス変更のたびに
+`{ status, changed_at, note }` のレコードが追記されている。
+しかし現在の企業詳細モーダル（`companies.tsx`）にはこの履歴を表示するUIがない。
+このプロンプトでは、企業詳細モーダル内にステータス変更履歴をタイムライン形式で追加する。
+
+### 参照すべき既存ファイル
+- `backend/app/models/company.py` — `status_history: list[dict]` フィールドの JSON 構造確認
+- `backend/app/schemas/company.py` — `CompanyResponse` に `status_history` が含まれるか確認
+- `mobile/src/types/company.ts` — `Company` 型に `status_history` が定義されているか確認
+- `mobile/src/app/(tabs)/companies.tsx` — 企業詳細モーダルの実装
+- `mobile/src/components/company/StatusBadge.tsx` — `STATUS_CONFIG`（色・ラベル）
+
+### タスク一覧
+
+#### 1. 型定義の確認・追加 (`mobile/src/types/company.ts`)
+- `StatusHistoryEntry` インターフェースを追加:
+  ```typescript
+  export interface StatusHistoryEntry {
+    status: CompanyStatus;
+    changed_at: string;  // ISO8601
+    note?: string | null;
+  }
+  ```
+- `Company` 型に `status_history: StatusHistoryEntry[]` を追加（未定義の場合）
+
+#### 2. バックエンド: `CompanyResponse` に `status_history` を含める
+- `backend/app/schemas/company.py` の `CompanyResponse` に `status_history` フィールドがなければ追加
+- `backend/app/api/v1/companies.py` の `GET /companies` および `GET /companies/{id}` が `status_history` を返していることを確認
+
+#### 3. ステータス履歴タイムラインコンポーネント (`mobile/src/components/company/StatusHistoryTimeline.tsx`)
+新規コンポーネントを作成:
+```typescript
+interface Props {
+  history: StatusHistoryEntry[];
+}
+```
+- `history` を `changed_at` の降順にソートして表示
+- 各エントリを縦線でつないだタイムライン形式で表示:
+  - 左側: ステータスカラーの丸アイコン（`STATUS_CONFIG` の色を使用）
+  - 右側: ステータスラベル（日本語）+ 日時（`M月d日 HH:mm`）+ note（あれば）
+- `history` が空の場合「変更履歴がありません」テキスト表示
+
+#### 4. 企業詳細モーダルに組み込み (`mobile/src/app/(tabs)/companies.tsx`)
+- 企業詳細モーダルの下部（保存・削除ボタンの上）に `<StatusHistoryTimeline history={selectedCompany.status_history ?? []} />` を追加
+- セクションヘッダー「ステータス履歴」を表示
+- 履歴が長い場合はモーダル内でスクロールできるよう `ScrollView` を使用
+
+### 受け入れ条件
+- [ ] 企業詳細モーダルにステータス履歴セクションが表示される
+- [ ] ステータス変更後に再度モーダルを開くと新しい履歴が表示される
+- [ ] タイムラインのドットカラーが各ステータスの色と一致している
+- [ ] 履歴が空の場合「変更履歴がありません」が表示される
+- [ ] TypeScript エラーなし
+
+### 注意事項
+- `status_history` は API レスポンスに含まれない場合があるため、`company.status_history ?? []` でフォールバックすること
+- バックエンドで `status_history` を返していない場合は、スキーマとAPIエンドポイントを先に修正してから進めること
+
+---
+
+## Prompt 8 — 企業カンバンビュー（Company Kanban View）
+
+### ブランチ
+```
+git checkout -b feature/company-kanban
+```
+
+### 背景
+現在の企業タブはリスト表示のみ。就活の進捗を視覚的に把握するために、
+カンバン（パイプライン）ビューを追加する。
+Company モデルの `status` enum が定義する8つのステージをカラムとして表示する。
+
+### 参照すべき既存ファイル
+- `mobile/src/app/(tabs)/companies.tsx` — 現在のリスト実装
+- `mobile/src/types/company.ts` — `CompanyStatus` enum
+- `mobile/src/components/company/StatusBadge.tsx` — `STATUS_CONFIG`（色・ラベル）
+- `mobile/src/api/companies.ts` — `fetchCompanies()`
+
+### タスク一覧
+
+#### 1. カンバンボードコンポーネント (`mobile/src/components/company/KanbanBoard.tsx`)
+```typescript
+interface Props {
+  companies: Company[];
+  onCardPress: (company: Company) => void;
+}
+```
+- `CompanyStatus` の全ステージ順（`interested → applied → screening → interview → offer → rejected`）でカラムを並べる
+- 横スクロール `ScrollView` (horizontal) でカラムを表示
+- 各カラム:
+  - ヘッダー: ステータスラベル（日本語）+ そのステータスの企業数バッジ
+  - カラム内は縦 `ScrollView` で企業カードを並べる
+  - 各カード: 企業名、優先度（星またはドット）、最終更新日
+  - カードタップで `onCardPress` を呼ぶ
+
+#### 2. カンバンカードコンポーネント (`mobile/src/components/company/KanbanCard.tsx`)
+```typescript
+interface Props {
+  company: Company;
+  onPress: () => void;
+}
+```
+- 企業名（1行省略）
+- 優先度インジケーター（priority 1-5 を ● の数で表示）
+- ステータス変更日時（`status_history` の最新エントリから `changed_at`）
+
+#### 3. 企業タブにビュー切り替えを追加 (`mobile/src/app/(tabs)/companies.tsx`)
+- 画面右上にトグルボタンを追加（リストアイコン / カンバンアイコン）
+- `viewMode: 'list' | 'kanban'` を `useState` で管理
+- `viewMode === 'list'` → 既存の `FlatList`
+- `viewMode === 'kanban'` → `<KanbanBoard companies={companies} onCardPress={...} />`
+- 企業詳細モーダルはどちらのビューからも開けること
+- ビューモード選択は Zustand または `useState` で保持（アプリ再起動後はリストに戻って OK）
+
+### 受け入れ条件
+- [ ] 企業タブ右上のボタンでリスト/カンバン切り替えができる
+- [ ] カンバンビューで全ステータスのカラムが横スクロールで確認できる
+- [ ] 各カラムに正しい企業が表示される
+- [ ] カンバンカードをタップすると企業詳細モーダルが開く
+- [ ] ステータスが 0 件のカラムも表示される（空カラム可）
+- [ ] TypeScript エラーなし
+
+### 注意事項
+- ドラッグ&ドロップによるステータス変更は **このプロンプトのスコープ外**（将来対応）
+- カンバンカードのデザインはシンプルに保つ（情報過多にしない）
+- `rejected` カラムは視覚的に薄いグレー系にして、進行中ステータスと区別すること
+
+---
+
 ## コーディング規約（共通リマインダー）
 
 ### Python
