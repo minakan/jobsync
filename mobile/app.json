@@ -2,6 +2,7 @@
   "expo": {
     "name": "JobSync",
     "slug": "jobsync-mobile",
+    "owner": "kantaro",
     "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "jobsync",
@@ -10,14 +11,28 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.codepeng.jobsync",
+      "googleServicesFile": "./GoogleService-Info.plist"
+    },
+    "android": {
+      "package": "com.codepeng.jobsync",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "bundler": "metro"
     },
     "plugins": [
       "expo-router",
-      "expo-notifications"
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#2563EB"
+        }
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging"
     ],
     "experiments": {
       "typedRoutes": true
