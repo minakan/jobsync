@@ -7,6 +7,12 @@ export enum CompanyStatus {
   Rejected = 'rejected',
 }
 
+export interface StatusHistoryEntry {
+  status: CompanyStatus;
+  changed_at: string;
+  note?: string | null;
+}
+
 export interface Company {
   id: string;
   userId: string;
@@ -15,6 +21,7 @@ export interface Company {
   priority: number;
   notes?: string | null;
   note?: string | null;
+  status_history: StatusHistoryEntry[];
   createdAt: string;
   updatedAt: string;
 }

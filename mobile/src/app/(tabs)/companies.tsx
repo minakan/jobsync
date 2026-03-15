@@ -23,6 +23,7 @@ import {
   updateCompany,
 } from '../../api/companies';
 import { STATUS_CONFIG, StatusBadge } from '@/components/company/StatusBadge';
+import { StatusHistoryTimeline } from '@/components/company/StatusHistoryTimeline';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -384,6 +385,9 @@ export default function CompaniesScreen() {
                   textAlignVertical="top"
                   editable={!isDetailPending}
                 />
+
+                <Text style={styles.fieldLabel}>ステータス履歴</Text>
+                <StatusHistoryTimeline history={selectedCompany.status_history ?? []} />
 
                 <View style={styles.modalActions}>
                   <AppButton
