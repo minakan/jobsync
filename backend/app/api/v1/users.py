@@ -19,6 +19,13 @@ from app.schemas.user import (
 router = APIRouter()
 
 
+@router.get("/me", response_model=UserResponse)
+async def get_my_profile(
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> UserResponse:
+    return UserResponse.model_validate(current_user)
+
+
 @router.patch("/me/fcm-token", response_model=UserResponse)
 async def update_my_fcm_token(
     payload: UserFcmTokenUpdate,

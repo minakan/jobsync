@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app import models as _models  # noqa: F401
-from app.api.v1 import companies, schedules, users
+from app.api.v1 import auth, companies, schedules, users
 from app.core.config import settings
 from app.core.database import Base, get_db
 from app.core.errors import APIError
@@ -96,6 +96,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
             content={"detail": str(exc.detail), "code": exc.code},
         )
 
+    app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(schedules.router, prefix="/api/v1/schedules", tags=["schedules"])
     app.include_router(companies.router, prefix="/api/v1/companies", tags=["companies"])
     app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
@@ -104,7 +105,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    transport = ASGITransport(app=app, lifespan="off")
+    transport = ASGITransport(app=app)
 
     try:
         async with AsyncClient(transport=transport, base_url="http://testserver") as async_client:

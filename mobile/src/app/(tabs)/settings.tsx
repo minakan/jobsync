@@ -3,6 +3,7 @@ import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
+  Alert,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -11,6 +12,7 @@ import {
   View,
 } from 'react-native';
 
+import { authApi } from '@/api/auth';
 import { usersApi } from '@/api/users';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
@@ -52,7 +54,9 @@ const MONOSPACE_FONT = Platform.select({
 
 export default function SettingsScreen() {
   const logout = useAuthStore((state) => state.logout);
+  const clearAuth = useAuthStore((state) => state.clearAuth);
   const [isCopied, setIsCopied] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   const forwardingAddressQuery = useQuery({
     queryKey: ['forwarding-address'],
@@ -84,6 +88,57 @@ export default function SettingsScreen() {
   const handleLogout = (): void => {
     logout();
     router.replace('/auth');
+  };
+
+  const executeAccountDeletion = async (): Promise<void> => {
+    if (isDeletingAccount) {
+      return;
+    }
+
+    try {
+      setIsDeletingAccount(true);
+      await authApi.deleteAccount();
+      clearAuth();
+      router.replace('/auth');
+    } catch (error) {
+      console.error('Account deletion error:', error);
+      Alert.alert(
+        'アカウント削除エラー',
+        'アカウントの削除に失敗しました。時間をおいて再度お試しください。',
+      );
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  };
+
+  const showFinalDeleteConfirmation = (): void => {
+    Alert.alert('最終確認', 'アカウントを完全に削除します。本当によろしいですか？', [
+      {
+        text: 'キャンセル',
+        style: 'cancel',
+      },
+      {
+        text: '削除する',
+        style: 'destructive',
+        onPress: () => {
+          void executeAccountDeletion();
+        },
+      },
+    ]);
+  };
+
+  const handleDeleteAccountPress = (): void => {
+    Alert.alert('アカウント削除', '本当に削除しますか？この操作は取り消せません。', [
+      {
+        text: 'キャンセル',
+        style: 'cancel',
+      },
+      {
+        text: '削除する',
+        style: 'destructive',
+        onPress: showFinalDeleteConfirmation,
+      },
+    ]);
   };
 
   return (
@@ -145,7 +200,18 @@ export default function SettingsScreen() {
           </View>
         </AppCard>
 
-        <AppButton label="ログアウト" variant="danger" onPress={handleLogout} />
+        <View style={styles.accountActions}>
+          <AppButton label="ログアウト" variant="danger" onPress={handleLogout} />
+          <AppButton
+            label="アカウントを削除する"
+            variant="danger"
+            onPress={handleDeleteAccountPress}
+            disabled={isDeletingAccount}
+            loading={isDeletingAccount}
+            style={styles.deleteAccountButton}
+            textStyle={styles.deleteAccountButtonText}
+          />
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -226,5 +292,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     fontWeight: '500',
+  },
+  accountActions: {
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  deleteAccountButton: {
+    borderColor: '#FF3B30',
+  },
+  deleteAccountButtonText: {
+    color: '#FF3B30',
   },
 });

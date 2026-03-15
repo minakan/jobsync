@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import secrets
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 import httpx
@@ -28,6 +28,9 @@ from app.core.errors import APIError
 from app.core.logger import logger
 from app.core.redis import get_redis
 from app.core.security import create_access_token, create_refresh_token, get_current_user, verify_token
+
+if TYPE_CHECKING:
+    from app.models.user import User
 
 router = APIRouter()
 
@@ -234,3 +237,13 @@ async def get_me(current_user: Any = Depends(get_current_user)) -> UserInfo:
         name=current_user.name,
         avatar_url=current_user.avatar_url,
     )
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT, summary="現在のアカウントを削除")
+async def delete_account(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await db.delete(current_user)
+    await db.commit()
+    return None
