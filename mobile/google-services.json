@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "396071299557",
+    "project_id": "jobsync-489519",
+    "storage_bucket": "jobsync-489519.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:396071299557:android:924b80491ed82b611ee70c",
+        "android_client_info": {
+          "package_name": "com.codepeng.jobsync"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "396071299557-ntuc7oocfegejgs0eqkm1qd709h1hiic.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAHBsh3P8LUsJuudHnloizrmWemjWOtBsw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "396071299557-ntuc7oocfegejgs0eqkm1qd709h1hiic.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

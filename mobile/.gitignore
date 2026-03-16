@@ -5,7 +5,3 @@
 expo-env.d.ts
 # @end expo-cli.env.local
 package-lock.json
-
-# Firebase config files (contain sensitive app credentials)
-GoogleService-Info.plist
-google-services.json

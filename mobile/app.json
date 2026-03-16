@@ -2,7 +2,7 @@
   "expo": {
     "name": "JobSync",
     "slug": "jobsync-mobile",
-    "owner": "kantaro",
+    "owner": "minakan",
     "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "jobsync",
@@ -13,7 +13,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.codepeng.jobsync",
-      "googleServicesFile": "./GoogleService-Info.plist"
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.codepeng.jobsync",
@@ -37,6 +40,12 @@
     "experiments": {
       "typedRoutes": true
     },
-    "newArchEnabled": true
+    "newArchEnabled": true,
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "f76b1aa4-1964-4664-98f8-e4458a614445"
+      }
+    }
   }
 }
