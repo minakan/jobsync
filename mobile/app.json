@@ -36,6 +36,7 @@
       ],
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
+      "./withFirebasePodfilePatch",
       [
         "expo-build-properties",
         {
@@ -48,7 +49,7 @@
     "experiments": {
       "typedRoutes": true
     },
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "extra": {
       "router": {},
       "eas": {
